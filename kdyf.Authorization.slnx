@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/kdyf.Authorization.Administration.AspNetCore/kdyf.Authorization.Administration.AspNetCore.csproj" />
+    <Project Path="src/kdyf.Authorization.Administration.Endpoints/kdyf.Authorization.Administration.Endpoints.csproj" />
+    <Project Path="src/kdyf.Authorization.Administration.EntraId/kdyf.Authorization.Administration.EntraId.csproj" />
+    <Project Path="src/kdyf.Authorization.Administration/kdyf.Authorization.Administration.csproj" />
+    <Project Path="src/kdyf.Authorization.AspNetCore.Endpoints/kdyf.Authorization.AspNetCore.Endpoints.csproj" />
+    <Project Path="src/kdyf.Authorization.AspNetCore/kdyf.Authorization.AspNetCore.csproj" />
+    <Project Path="src/kdyf.Authorization.EntityFrameworkCore/kdyf.Authorization.EntityFrameworkCore.csproj" />
+    <Project Path="src/kdyf.Authorization.EntraId.Migration/kdyf.Authorization.EntraId.Migration.csproj" />
+    <Project Path="src/kdyf.Authorization.EntraId/kdyf.Authorization.EntraId.csproj" />
+    <Project Path="src/kdyf.Authorization/kdyf.Authorization.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/kdyf.Authorization.Administration.AspNetCore.Test/kdyf.Authorization.Administration.AspNetCore.Test.csproj" />
+    <Project Path="test/kdyf.Authorization.Administration.Test/kdyf.Authorization.Administration.Test.csproj" />
+    <Project Path="test/kdyf.Authorization.AspNetCore.Test/kdyf.Authorization.AspNetCore.Test.csproj" />
+    <Project Path="test/kdyf.Authorization.Endpoints.Test/kdyf.Authorization.Endpoints.Test.csproj" />
+    <Project Path="test/kdyf.Authorization.EntityFrameworkCore.Test/kdyf.Authorization.EntityFrameworkCore.Test.csproj" />
+    <Project Path="test/kdyf.Authorization.EntraId.Test/kdyf.Authorization.EntraId.Test.csproj" />
+    <Project Path="test/kdyf.Authorization.Test/kdyf.Authorization.Test.csproj" />
+  </Folder>
+</Solution>

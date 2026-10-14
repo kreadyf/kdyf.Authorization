@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ACCESS ADMINISTRATION: "who can do what?". Only used by whoever builds those screens.
+
+       Two halves: membership of the access group, an Entra security group changed through
+       IAccessGroupDirectory (implemented over Microsoft Graph by kdyf.Authorization.Administration.EntraId);
+       and the application's own roles — which exist, what each grants, who holds which — in the
+       tables of authorization (auth.Role, auth.RolePermission, auth.UserRole). Stored here: the audit
+       log (auth.AuditLog). People themselves are not stored anywhere: they live in Entra.
+
+       The services (access, personal tokens, directory, audit), their contracts, the audit table and
+       its mapping (ApplyAdministrationModel), the validation envelope and the SMTP invitation notifier.
+
+       It depends on authorization and not the other way round: without it, it would not know who is
+       asking, what they may hand out, what a role grants, or which cache to invalidate.
+
+       NO endpoints: the host exposes them. kdyf.Authorization.Administration.AspNetCore
+       composes it for a host. -->
+  <PropertyGroup>
+    <Description>Administration services for kdyf.Authorization: people and their access, roles, personal access tokens, the directory, the audit log and user simulation.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\kdyf.Authorization\kdyf.Authorization.csproj" />
+    <ProjectReference Include="..\kdyf.Authorization.EntityFrameworkCore\kdyf.Authorization.EntityFrameworkCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="kdyf.Authorization.Administration.Test" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- OPTIONAL endpoints of the administration of access: people, roles, the permission catalog, the directory, the
+       audit log and personal access tokens, as minimal APIs that exist only when the host calls
+       MapKdyfAuthorizationAdministration(). A host that wants its own endpoints leaves this package out and calls the
+       administration services, with the actor from IAdminActorAccessor.
+
+       The routes and the DTOs are this package's public contract: changing a route or removing a field is a major
+       version. -->
+  <PropertyGroup>
+    <Description>Optional minimal API endpoints for the kdyf.Authorization administration: users, roles, permissions, directory, audit log, personal access tokens and user simulation.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\kdyf.Authorization.Administration.AspNetCore\kdyf.Authorization.Administration.AspNetCore.csproj" />
+    <ProjectReference Include="..\kdyf.Authorization.AspNetCore.Endpoints\kdyf.Authorization.AspNetCore.Endpoints.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="kdyf.Authorization.Endpoints.Test" />
+  </ItemGroup>
+
+</Project>

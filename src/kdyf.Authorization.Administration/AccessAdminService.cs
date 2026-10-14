@@ -1,0 +1,939 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using kdyf.Authorization.Administration.Abstractions;
+using kdyf.Authorization.Administration.Models;
+using kdyf.Authorization.Administration.Validation;
+using kdyf.Authorization;
+using kdyf.Authorization.Abstractions;
+using kdyf.Authorization.Authorization;
+using kdyf.Authorization.Roles;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using RoleRow = kdyf.Authorization.EntityFrameworkCore.Entities.Role;
+using PermissionRow = kdyf.Authorization.EntityFrameworkCore.Entities.Permission;
+using RolePermissionRow = kdyf.Authorization.EntityFrameworkCore.Entities.RolePermission;
+using UserRoleRow = kdyf.Authorization.EntityFrameworkCore.Entities.UserRole;
+
+namespace kdyf.Authorization.Administration
+{
+    /// <inheritdoc cref="IAccessAdminService"/>
+    /// <typeparam name="TContext">The consumer's DbContext with both models applied: roles, who holds them and
+    /// audit entries are saved through it.</typeparam>
+    public sealed partial class AccessAdminService<TContext> : IAccessAdminService where TContext : DbContext
+    {
+        [GeneratedRegex("^[A-Za-z][A-Za-z0-9._-]{0,99}$")]
+        private static partial Regex RoleValueShape();
+
+        private readonly TContext _context;
+        private readonly IAccessDirectory _group;
+        private readonly RolePermissionMapProvider _roles;
+        private readonly DeclaredPermissions _declared;
+        private readonly IPermissionCache _cache;
+        private readonly IAuditLog _audit;
+        private readonly IAccessChangeNotifier _notifier;
+        private readonly ILogger<AccessAdminService<TContext>> _logger;
+
+        /// <summary>The code that means "administers access": what the lockout guard counts.</summary>
+        private readonly string _administrationCode;
+
+        public AccessAdminService(
+            TContext context,
+            IAccessDirectory group,
+            RolePermissionMapProvider roles,
+            DeclaredPermissions declared,
+            IPermissionCache cache,
+            IAuditLog audit,
+            IAccessChangeNotifier notifier,
+            ILogger<AccessAdminService<TContext>> logger,
+            PermissionAuthorizationOptions? options = null)
+        {
+            _context = context;
+            _group = group;
+            _roles = roles;
+            _declared = declared;
+            _cache = cache;
+            _audit = audit;
+            _notifier = notifier;
+            _logger = logger;
+            _administrationCode = options?.AdministrationPermissionCode ?? AuthPolicies.Admin;
+        }
+
+        // ── People: reads ────────────────────────────────────────────────────────
+
+        public async Task<ValidationResult<List<AccessUserResponse>>> ListUsersAsync(AdminActor actor, CancellationToken ct)
+        {
+            try
+            {
+                var members = await _group.ListWithAccessAsync(ct);
+                var held = await HeldRolesAsync(ct);
+                var context = await RoleContextAsync(actor, held, ct);
+
+                var memberIds = members.Select(m => UserRoleRow.Normalize(m.User.ObjectId)).ToHashSet(StringComparer.Ordinal);
+
+                // Roles left behind for somebody outside the group: listed, flagged, holding nothing.
+                var outsiders = held.Keys.Where(id => !memberIds.Contains(id)).ToList();
+                var known = outsiders.Count == 0
+                    ? new Dictionary<string, DirectoryAccount>(StringComparer.Ordinal)
+                    : (await _group.GetUsersAsync(outsiders, ct)).ToDictionary(a => UserRoleRow.Normalize(a.User.ObjectId), StringComparer.Ordinal);
+
+                var people = members
+                    .Select(m => ToResponse(m.User, inDirectory: true, m.AccountEnabled, isMember: true, RolesIn(held, m.User.ObjectId), actor, context))
+                    .Concat(outsiders.Select(id => known.TryGetValue(id, out var account)
+                        ? ToResponse(account.User, inDirectory: true, account.AccountEnabled, isMember: false, held[id], actor, context)
+                        : ToResponse(Unknown(id), inDirectory: false, accountEnabled: false, isMember: false, held[id], actor, context)));
+
+                return Outcome.Ok(people
+                    .OrderBy(user => user.DisplayName ?? user.Email ?? user.ObjectId, StringComparer.OrdinalIgnoreCase)
+                    .ToList());
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "The users with access could not be listed.");
+                return Outcome.Error<List<AccessUserResponse>>("directory", ex.Message);
+            }
+        }
+
+        public async Task<ValidationResult<AccessUserResponse>> GetUserAsync(string objectId, AdminActor actor, CancellationToken ct)
+        {
+            if (!Guid.TryParse(objectId, out _))
+                return Outcome.Error<AccessUserResponse>("objectId", "Not a valid Entra object id.");
+
+            try
+            {
+                var person = await ReadPersonAsync(objectId, ct);
+                if (person is null)
+                    return Outcome.Error<AccessUserResponse>("objectId", "The directory has no user with this id.");
+
+                var context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
+                return Outcome.Ok(ToResponse(person, actor, context));
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "User {ObjectId} could not be read.", objectId);
+                return Outcome.Error<AccessUserResponse>("directory", ex.Message);
+            }
+        }
+
+        // ── People: changes ──────────────────────────────────────────────────────
+
+        public async Task<ValidationResult<AccessUserResponse>> SetRolesAsync(
+            string objectId, SetRolesRequest request, AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<AccessUserResponse>("actor", refusal);
+
+            if (!Guid.TryParse(objectId, out _))
+                return Outcome.Error<AccessUserResponse>("objectId", "Not a valid Entra object id.");
+
+            if (actor.Is(objectId))
+                return Outcome.Error<AccessUserResponse>("objectId", "Nobody changes their own access. Ask another administrator.");
+
+            var requested = (request?.Roles ?? new List<string>())
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            Person? person;
+            RoleContext context;
+            try
+            {
+                person = await ReadPersonAsync(objectId, ct);
+                if (person is not { InDirectory: true })
+                    return Outcome.Error<AccessUserResponse>("objectId", "The directory has no user with this id.");
+
+                _roles.Invalidate();
+                context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "Access of {ObjectId} could not be read before changing it.", objectId);
+                return Outcome.Error<AccessUserResponse>("directory", ex.Message);
+            }
+
+            var map = context.Map;
+            var missing = requested.Where(value => !map.Exists(value)).ToList();
+            if (missing.Count > 0)
+                return Outcome.Error<AccessUserResponse>("roles", $"There is no role {string.Join(", ", missing)}.");
+
+            var current = person.Roles;
+            var toAdd = requested.Where(value => !current.Contains(value)).ToList();
+            var toRemove = current.Where(value => !requested.Contains(value)).ToList();
+
+            // Nobody gives away, or takes away, more than they hold. Removing matters as much as granting:
+            // otherwise somebody with a lesser administration role could demote a full administrator.
+            var beyondGrant = toAdd.Where(value => !map.IsCoveredBy(value, actor.Permissions)).ToList();
+            if (beyondGrant.Count > 0)
+                return Outcome.Error<AccessUserResponse>("roles",
+                    $"You cannot grant {string.Join(", ", beyondGrant)}: it grants permissions you do not hold.");
+
+            var beyondRemove = toRemove.Where(value => !map.IsCoveredBy(value, actor.Permissions)).ToList();
+            if (beyondRemove.Count > 0)
+                return Outcome.Error<AccessUserResponse>("roles",
+                    $"You cannot remove {string.Join(", ", beyondRemove)}: it grants permissions you do not hold. "
+                    + "Send it back unchanged to leave it as it is.");
+
+            var remaining = current.Except(toRemove, StringComparer.Ordinal).Concat(toAdd).ToHashSet(StringComparer.Ordinal);
+            if (person.HasAccess && Administers(map, current) && !Administers(map, remaining))
+            {
+                var guard = await LeavesAnAdministratorAsync(map, context.Held, except: objectId, ct);
+                if (guard is not null)
+                    return Outcome.Error<AccessUserResponse>(guard.Value.Field, guard.Value.Message);
+            }
+
+            if (toAdd.Count == 0 && toRemove.Count == 0 && person.IsMember)
+                return Outcome.Ok(ToResponse(person, actor, context));
+
+            // The group first: without it the roles grant nothing, and if Graph refuses nothing has changed yet.
+            var joined = false;
+            if (!person.IsMember)
+            {
+                try
+                {
+                    await _group.GrantAsync(objectId, CancellationToken.None);
+                    joined = true;
+                }
+                catch (DirectoryException ex)
+                {
+                    _logger.LogError(ex, "{ObjectId} could not be added to the access group.", objectId);
+                    return Outcome.Error<AccessUserResponse>("directory", ex.Message);
+                }
+            }
+
+            var key = UserRoleRow.Normalize(objectId);
+            var rows = _context.Set<UserRoleRow>();
+            rows.RemoveRange(await rows.Where(r => r.ObjectId == key && toRemove.Contains(r.RoleValue)).ToListAsync(CancellationToken.None));
+            rows.AddRange(toAdd.Select(value => new UserRoleRow { ObjectId = key, RoleValue = value }));
+
+            var details = JsonSerializer.Serialize(new { added = toAdd, removed = toRemove });
+            _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
+                joined ? "access.granted" : "access.roles.changed", "user", key, person.User.Label, details));
+
+            await SaveAuditedAsync(actor, $"the access of {person.User.Label} ({key})", joined ? $"added to the access group; {details}" : details);
+
+            // At once on this instance; on others, within CacheDuration.
+            _cache.Invalidate(new UserIdentity(key, null));
+            await NotifyAsync(person.User, toAdd, toRemove, actor);
+
+            return Outcome.Ok(ToResponse(person with { IsMember = true, Roles = remaining }, actor, context));
+        }
+
+        public async Task<ValidationResult<bool>> RevokeAsync(string objectId, AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<bool>("actor", refusal);
+
+            if (!Guid.TryParse(objectId, out _))
+                return Outcome.Error<bool>("objectId", "Not a valid Entra object id.");
+
+            if (actor.Is(objectId))
+                return Outcome.Error<bool>("objectId", "Nobody changes their own access. Ask another administrator.");
+
+            Person? person;
+            RoleContext context;
+            try
+            {
+                person = await ReadPersonAsync(objectId, ct);
+                if (person is null)
+                    return Outcome.Error<bool>("objectId", "The directory has no user with this id.");
+
+                _roles.Invalidate();
+                context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "Access of {ObjectId} could not be read before revoking it.", objectId);
+                return Outcome.Error<bool>("directory", ex.Message);
+            }
+
+            var map = context.Map;
+            var removed = person.Roles.OrderBy(v => v, StringComparer.Ordinal).ToList();
+
+            var beyond = removed.Where(value => !map.IsCoveredBy(value, actor.Permissions)).ToList();
+            if (beyond.Count > 0)
+                return Outcome.Error<bool>("roles",
+                    $"You cannot remove {string.Join(", ", beyond)}: it grants permissions you do not hold.");
+
+            if (person.HasAccess && Administers(map, person.Roles))
+            {
+                var guard = await LeavesAnAdministratorAsync(map, context.Held, except: objectId, ct);
+                if (guard is not null)
+                    return Outcome.Error<bool>(guard.Value.Field, guard.Value.Message);
+            }
+
+            // The database first: the roles go at once, whatever Graph does next. The other order would risk the
+            // opposite failure — out of the group, but with roles that come back the moment somebody re-adds them.
+            var key = UserRoleRow.Normalize(objectId);
+            var rows = _context.Set<UserRoleRow>();
+            rows.RemoveRange(await rows.Where(r => r.ObjectId == key).ToListAsync(CancellationToken.None));
+
+            var details = JsonSerializer.Serialize(new { removed, fromGroup = person.IsMember });
+            _audit.Record(AuditActor.From(actor.Identity), new AuditEntry("access.revoked", "user", key, person.User.Label, details));
+            await SaveAuditedAsync(actor, $"the access of {person.User.Label} ({key})", details);
+
+            _cache.Invalidate(new UserIdentity(key, null));
+            await NotifyAsync(person.User, Array.Empty<string>(), removed, actor);
+
+            if (!person.IsMember)
+                return Outcome.Ok(true);
+
+            // Then the group. The account itself is NOT deleted: deprovisioning it belongs to whoever
+            // administers the tenant. A failure here is reported, not swallowed: until the person is out of the
+            // group they can still sign in with the base access.
+            try
+            {
+                await _group.RevokeAsync(objectId, CancellationToken.None);
+
+                if (await _group.HasAccessAsync(objectId, CancellationToken.None))
+                    return Outcome.Error<bool>("directory",
+                        "Their roles were removed and their direct membership too, but they are still in the access group "
+                        + "through a nested group. Remove them from that group in Entra; until then they keep the base access.");
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "The roles of {ObjectId} were removed, but taking them out of the access group failed.", objectId);
+                return Outcome.Error<bool>("directory",
+                    $"Their roles were removed, but taking them out of the access group failed: {ex.Message} "
+                    + "Until that is done they keep the base access. Try again.");
+            }
+
+            return Outcome.Ok(true);
+        }
+
+        // ── Roles ────────────────────────────────────────────────────────────────
+
+        public async Task<ValidationResult<List<RoleResponse>>> ListRolesAsync(AdminActor actor, CancellationToken ct)
+        {
+            var context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
+            return Outcome.Ok(context.Map.Roles.Select(value => ToRoleResponse(value, context, actor)).ToList());
+        }
+
+        public async Task<ValidationResult<RoleResponse>> GetRoleAsync(string roleValue, AdminActor actor, CancellationToken ct)
+        {
+            var context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
+            return context.Map.Exists(roleValue)
+                ? Outcome.Ok(ToRoleResponse(roleValue, context, actor))
+                : Outcome.Error<RoleResponse>("roleValue", $"There is no role '{roleValue}'.");
+        }
+
+        public async Task<ValidationResult<RoleResponse>> CreateRoleAsync(CreateRoleRequest request, AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<RoleResponse>("actor", refusal);
+
+            var value = request?.Value?.Trim() ?? string.Empty;
+            if (!RoleValueShape().IsMatch(value))
+                return Outcome.Error<RoleResponse>("value",
+                    "A role value starts with a letter and has only letters, digits, '.', '_' and '-' (at most 100).");
+
+            var name = string.IsNullOrWhiteSpace(request!.Name) ? value : request.Name.Trim();
+            if (name.Length > 200)
+                return Outcome.Error<RoleResponse>("name", "At most 200 characters.");
+
+            var description = Clean(request.Description);
+            if (description?.Length > 500)
+                return Outcome.Error<RoleResponse>("description", "At most 500 characters.");
+
+            var permissions = Codes(request.Permissions);
+            var invalid = CheckGrants(permissions, Array.Empty<string>(), actor) ?? await MissingFromCatalogAsync(permissions, ct);
+            if (invalid is not null)
+                return Outcome.Error<RoleResponse>("permissions", invalid);
+
+            // Case-insensitive on purpose: 'Portal.Admin' and 'portal.admin' side by side is a mistake waiting to
+            // be made from a dropdown.
+            var existing = await _context.Set<RoleRow>().Select(r => r.RoleValue).ToListAsync(ct);
+            if (existing.Any(r => string.Equals(r, value, StringComparison.OrdinalIgnoreCase)))
+                return Outcome.Error<RoleResponse>("value", $"There is already a role '{value}'.");
+
+            _context.Add(new RoleRow { RoleValue = value, Name = name, Description = description, CreatedAt = DateTime.UtcNow });
+            _context.Set<RolePermissionRow>().AddRange(permissions.Select(code => new RolePermissionRow { RoleValue = value, PermissionCode = code }));
+            _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
+                "role.created", "role", value, name, JsonSerializer.Serialize(new { name, description, permissions })));
+            await _context.SaveChangesAsync(ct);
+
+            _roles.Invalidate();
+            _logger.LogInformation("{Actor} created the role {Role}: {Permissions}.", actor.Identity.Email, value, string.Join(", ", permissions));
+
+            return await GetRoleAsync(value, actor, ct);
+        }
+
+        public async Task<ValidationResult<RoleResponse>> UpdateRoleAsync(
+            string roleValue, UpdateRoleRequest request, AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<RoleResponse>("actor", refusal);
+
+            var name = request?.Name?.Trim() ?? string.Empty;
+            if (name.Length is 0 or > 200)
+                return Outcome.Error<RoleResponse>("name", "A name is required (at most 200 characters).");
+
+            var description = Clean(request!.Description);
+            if (description?.Length > 500)
+                return Outcome.Error<RoleResponse>("description", "At most 500 characters.");
+
+            var role = await _context.Set<RoleRow>().FirstOrDefaultAsync(r => r.RoleValue == roleValue, ct);
+            if (role is null)
+                return Outcome.Error<RoleResponse>("roleValue", $"There is no role '{roleValue}'.");
+
+            if (role.Name == name && role.Description == description)
+                return await GetRoleAsync(roleValue, actor, ct);
+
+            var details = JsonSerializer.Serialize(new
+            {
+                name = new { from = role.Name, to = name },
+                description = new { from = role.Description, to = description }
+            });
+            role.Name = name;
+            role.Description = description;
+            _audit.Record(AuditActor.From(actor.Identity), new AuditEntry("role.updated", "role", roleValue, name, details));
+            await _context.SaveChangesAsync(ct);
+
+            return await GetRoleAsync(roleValue, actor, ct);
+        }
+
+        public async Task<ValidationResult<bool>> DeleteRoleAsync(string roleValue, AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<bool>("actor", refusal);
+
+            var role = await _context.Set<RoleRow>().FirstOrDefaultAsync(r => r.RoleValue == roleValue, ct);
+            if (role is null)
+                return Outcome.Error<bool>("roleValue", $"There is no role '{roleValue}'.");
+
+            // Taken away from each person first: every one of those changes passes the four-eyes rule and the
+            // lockout guard, which a delete that swept them all away at once would skip.
+            var holders = await _context.Set<UserRoleRow>().CountAsync(r => r.RoleValue == roleValue, ct);
+            if (holders > 0)
+                return Outcome.Error<bool>("roleValue",
+                    $"{holders} {(holders == 1 ? "person holds" : "people hold")} this role. Take it away from them first.");
+
+            _roles.Invalidate();
+            var map = await _roles.GetAsync(ct);
+            if (!map.IsCoveredBy(roleValue, actor.Permissions))
+                return Outcome.Error<bool>("roleValue", "It grants permissions you do not hold: you cannot delete it.");
+
+            var grants = map.GrantsOf(roleValue).OrderBy(c => c, StringComparer.Ordinal).ToList();
+
+            await using (var transaction = await _context.Database.BeginTransactionAsync(ct))
+            {
+                var rows = _context.Set<RolePermissionRow>();
+                rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue).ToListAsync(ct));
+                _context.Remove(role);
+                _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
+                    "role.deleted", "role", roleValue, role.Name, JsonSerializer.Serialize(new { permissions = grants })));
+
+                await _context.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+
+            _roles.Invalidate();
+            _logger.LogInformation("{Actor} deleted the role {Role}.", actor.Identity.Email, roleValue);
+
+            return Outcome.Ok(true);
+        }
+
+        public async Task<ValidationResult<RoleResponse>> SetRolePermissionsAsync(
+            string roleValue, SetRolePermissionsRequest request, AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<RoleResponse>("actor", refusal);
+
+            var requested = Codes(request?.Permissions);
+
+            var undeclared = requested.Where(code => _declared.Find(code) is null).ToList();
+            if (undeclared.Count > 0)
+                return Outcome.Error<RoleResponse>("permissions",
+                    $"These permissions do not exist: {string.Join(", ", undeclared)}. See GET /permissions.");
+
+            _roles.Invalidate();
+            var context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
+
+            if (!context.Map.Exists(roleValue))
+                return Outcome.Error<RoleResponse>("roleValue", $"There is no role '{roleValue}'.");
+
+            var currentGrants = context.Map.GrantsOf(roleValue);
+            if (!string.IsNullOrWhiteSpace(request?.Version) && request.Version != VersionOf(currentGrants))
+                return Outcome.Error<RoleResponse>("version",
+                    "Somebody changed this role since you read it. Reload it and apply your change again.");
+
+            // Four eyes: changing what your own role grants is changing your own access.
+            if (context.ActorRoles.Contains(roleValue))
+                return Outcome.Error<RoleResponse>("roleValue",
+                    "You hold this role: what it grants must be changed by another administrator.");
+
+            var added = requested.Where(code => !currentGrants.Contains(code)).ToList();
+            var removed = currentGrants.Where(code => !requested.Contains(code)).OrderBy(c => c, StringComparer.Ordinal).ToList();
+
+            if (CheckGrants(added, removed, actor) is { } beyond)
+                return Outcome.Error<RoleResponse>("permissions", beyond);
+
+            if (await MissingFromCatalogAsync(added, ct) is { } notInCatalog)
+                return Outcome.Error<RoleResponse>("permissions", notInCatalog);
+
+            if (added.Count == 0 && removed.Count == 0)
+                return Outcome.Ok(ToRoleResponse(roleValue, context, actor));
+
+            var changed = context.Map.With(roleValue, requested);
+
+            // The lockout guard: editing a role can take the administration permission away from everybody
+            // who holds it at once.
+            if (removed.Count > 0)
+            {
+                var guard = await LeavesAnAdministratorAsync(changed, context.Held, except: null, ct);
+                if (guard is not null)
+                    return Outcome.Error<RoleResponse>(guard.Value.Field, guard.Value.Message);
+            }
+
+            var details = JsonSerializer.Serialize(new { added, removed });
+
+            await using (var transaction = await _context.Database.BeginTransactionAsync(ct))
+            {
+                var rows = _context.Set<RolePermissionRow>();
+                rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue && removed.Contains(r.PermissionCode)).ToListAsync(ct));
+                rows.AddRange(added.Select(code => new RolePermissionRow { RoleValue = roleValue, PermissionCode = code }));
+
+                _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
+                    "role.permissions.changed", "role", roleValue, context.NameOf(roleValue), details));
+
+                await _context.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+
+            // Everybody holding the role is affected: the map and every cached person, at once on this instance.
+            _roles.Invalidate();
+            _cache.InvalidateAll();
+
+            _logger.LogInformation("{Actor} changed what {Role} grants: {Details}.", actor.Identity.Email, roleValue, details);
+
+            return Outcome.Ok(ToRoleResponse(roleValue, context with { Map = changed }, actor));
+        }
+
+        // ── What is left behind ──────────────────────────────────────────────────
+
+        public async Task<ValidationResult<RoleConsistencyResponse>> CheckRoleConsistencyAsync(AdminActor actor, CancellationToken ct)
+        {
+            try
+            {
+                return Outcome.Ok(await ConsistencyAsync(ct));
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "The configuration could not be checked against the access group.");
+                return Outcome.Error<RoleConsistencyResponse>("directory", ex.Message);
+            }
+        }
+
+        public async Task<ValidationResult<OrphanCleanupResponse>> DeleteOrphansAsync(AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<OrphanCleanupResponse>("actor", refusal);
+
+            RoleConsistencyResponse consistency;
+            try
+            {
+                // Decided from the group and the tables as they are NOW, not from a report the caller read earlier
+                // (nor from a cached map). A failure to read the group deletes nothing — everybody would look gone.
+                _roles.Invalidate();
+                consistency = await ConsistencyAsync(ct);
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "The access group could not be read; nothing was removed.");
+                return Outcome.Error<OrphanCleanupResponse>("directory", ex.Message);
+            }
+
+            var cleanup = new OrphanCleanupResponse
+            {
+                RemovedPermissions = consistency.UnknownPermissions,
+                RemovedCatalogPermissions = consistency.UndeclaredCatalogPermissions,
+                RemovedMembers = consistency.FormerMembers
+            };
+
+            if (cleanup.RemovedPermissions.Count == 0 && cleanup.RemovedCatalogPermissions.Count == 0 && cleanup.RemovedMembers.Count == 0)
+                return Outcome.Ok(cleanup);
+
+            await using (var transaction = await _context.Database.BeginTransactionAsync(ct))
+            {
+                var grants = _context.Set<RolePermissionRow>();
+                foreach (var unknown in cleanup.RemovedPermissions)
+                {
+                    grants.RemoveRange(await grants
+                        .Where(r => r.RoleValue == unknown.Value && unknown.Permissions.Contains(r.PermissionCode))
+                        .ToListAsync(ct));
+
+                    _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
+                        "role.permissions.changed", "role", unknown.Value, unknown.Value,
+                        JsonSerializer.Serialize(new { reason = "not declared by the application", added = Array.Empty<string>(), removed = unknown.Permissions })));
+                }
+
+                // Then the catalog rows themselves: every grant of an undeclared code went just above (they
+                // are all in UnknownPermissions), so the foreign key lets them go.
+                var catalog = _context.Set<PermissionRow>();
+                var retired = cleanup.RemovedCatalogPermissions;
+                catalog.RemoveRange(await catalog.Where(p => retired.Contains(p.PermissionCode)).ToListAsync(ct));
+                foreach (var code in retired)
+                    _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
+                        "permission.deleted", "permission", code, code,
+                        JsonSerializer.Serialize(new { reason = "not declared by the application" })));
+
+                var held = _context.Set<UserRoleRow>();
+                foreach (var former in cleanup.RemovedMembers)
+                {
+                    held.RemoveRange(await held.Where(r => r.ObjectId == former.ObjectId).ToListAsync(ct));
+
+                    // One entry per person: "what happened to X's access?" is answered by filtering on them.
+                    _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
+                        "access.roles.changed", "user", former.ObjectId, former.Label ?? former.ObjectId,
+                        JsonSerializer.Serialize(new { reason = "not a member of the access group", added = Array.Empty<string>(), removed = former.Roles })));
+                }
+
+                await _context.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+
+            // Nothing removed granted anything: the map is re-read, and the former members forgotten.
+            _roles.Invalidate();
+            foreach (var former in cleanup.RemovedMembers)
+                _cache.Invalidate(new UserIdentity(former.ObjectId, null));
+
+            _logger.LogInformation(
+                "{Actor} cleaned up the configuration: undeclared grants [{Codes}], catalog rows [{Catalog}], roles of former members [{Members}].",
+                actor.Identity.Email,
+                string.Join(", ", cleanup.RemovedPermissions.Select(u => $"{u.Value}: {string.Join("/", u.Permissions)}")),
+                string.Join(", ", cleanup.RemovedCatalogPermissions),
+                string.Join(", ", cleanup.RemovedMembers.Select(m => $"{m.Label ?? m.ObjectId}: {string.Join("/", m.Roles)}")));
+
+            return Outcome.Ok(cleanup);
+        }
+
+        private async Task<RoleConsistencyResponse> ConsistencyAsync(CancellationToken ct)
+        {
+            var map = await _roles.GetAsync(ct);
+            var held = await HeldRolesAsync(ct);
+
+            var formerIds = new List<string>();
+            if (held.Count > 0)
+            {
+                var members = (await _group.ListWithAccessAsync(ct))
+                    .Select(m => UserRoleRow.Normalize(m.User.ObjectId))
+                    .ToHashSet(StringComparer.Ordinal);
+                formerIds = held.Keys.Where(id => !members.Contains(id)).OrderBy(id => id, StringComparer.Ordinal).ToList();
+            }
+
+            var known = formerIds.Count == 0
+                ? new Dictionary<string, DirectoryAccount>(StringComparer.Ordinal)
+                : (await _group.GetUsersAsync(formerIds, ct)).ToDictionary(a => UserRoleRow.Normalize(a.User.ObjectId), StringComparer.Ordinal);
+
+            var catalog = await _context.Set<PermissionRow>().AsNoTracking().Select(p => p.PermissionCode).ToListAsync(ct);
+
+            return new RoleConsistencyResponse
+            {
+                UnconfiguredRoles = map.Roles.Where(value => map.EffectivePermissions(new[] { value }).Count == 0).ToList(),
+                UndeclaredCatalogPermissions = catalog
+                    .Where(code => _declared.Find(code) is null)
+                    .OrderBy(code => code, StringComparer.Ordinal)
+                    .ToList(),
+                UnknownPermissions = map.Undeclared
+                    .Select(u => new ConfiguredRoleResponse { Value = u.Key, Permissions = u.Value.ToList() })
+                    .OrderBy(u => u.Value, StringComparer.Ordinal)
+                    .ToList(),
+                FormerMembers = formerIds.Select(id => new FormerMemberResponse
+                {
+                    ObjectId = id,
+                    Label = known.TryGetValue(id, out var account) ? account.User.Label : null,
+                    InDirectory = known.ContainsKey(id),
+                    Roles = held[id].OrderBy(r => r, StringComparer.Ordinal).ToList()
+                }).ToList()
+            };
+        }
+
+        public Task<ValidationResult<List<PermissionResponse>>> ListPermissionsAsync(CancellationToken ct) =>
+            Task.FromResult(Outcome.Ok(_declared.Permissions.Select(p => new PermissionResponse
+            {
+                PermissionCode = p.Code,
+                Name = p.Name,
+                Description = p.Description,
+                IsPattern = p.IsPattern,
+                HeldByEveryMember = _roles.MemberCodes.Contains(p.Code)
+            }).ToList()));
+
+        // ── Rules ────────────────────────────────────────────────────────────────
+
+        /// <summary>The refusals that depend only on who is asking.</summary>
+        private static string? Refuse(AdminActor actor)
+        {
+            if (actor.IsSimulating)
+                return "Access cannot be changed while simulating another user. Stop simulating first.";
+
+            if (!actor.IsPerson)
+                return "Access can only be changed from an interactive sign-in: the audit log has to name the administrator.";
+
+            return null;
+        }
+
+        /// <summary>
+        /// Null when the actor may make a role grant <paramref name="added"/> and stop granting <paramref name="removed"/>:
+        /// every code is declared and covered by what they hold. A code no declaration matches any more grants
+        /// nothing, and removing it is always allowed.
+        /// </summary>
+        private string? CheckGrants(IEnumerable<string> added, IEnumerable<string> removed, AdminActor actor)
+        {
+            var addedList = added.ToList();
+
+            var undeclared = addedList.Where(code => _declared.Find(code) is null).ToList();
+            if (undeclared.Count > 0)
+                return $"These permissions do not exist: {string.Join(", ", undeclared)}. See GET /permissions.";
+
+            var beyond = addedList.Concat(removed.Where(code => _declared.Find(code) is not null))
+                .Where(code => !PermissionWildcards.Covers(actor.Permissions, code))
+                .ToList();
+
+            return beyond.Count == 0 ? null : $"You do not hold {string.Join(", ", beyond)}: you cannot grant or remove it.";
+        }
+
+        /// <summary>
+        /// Null when every code is a row of <c>auth.Permission</c>. A declared code missing there means the
+        /// startup synchronisation could not write it: the grant would break the foreign key, so it is refused
+        /// with the reason instead.
+        /// </summary>
+        private async Task<string?> MissingFromCatalogAsync(IReadOnlyCollection<string> codes, CancellationToken ct)
+        {
+            if (codes.Count == 0)
+                return null;
+
+            var present = await _context.Set<PermissionRow>().AsNoTracking()
+                .Where(p => codes.Contains(p.PermissionCode))
+                .Select(p => p.PermissionCode)
+                .ToListAsync(ct);
+
+            var missing = codes.Except(present, StringComparer.Ordinal).ToList();
+            return missing.Count == 0
+                ? null
+                : $"Not in the permission catalog (auth.Permission) yet: {string.Join(", ", missing)}. The startup "
+                  + "synchronisation did not write them — see the host's log.";
+        }
+
+        /// <summary>Whether a member holding these roles administers access.</summary>
+        private bool Administers(RolePermissionMap map, IEnumerable<string> roleValues) =>
+            PermissionWildcards.Covers(map.ForMember(roleValues), _administrationCode);
+
+        /// <summary>
+        /// Null when, under <paramref name="map"/>, somebody other than <paramref name="except"/> still administers:
+        /// holds a role that grants it, with an enabled account, in the access group. Graph is asked only about
+        /// the candidates, and stops at the first one that qualifies. A directory failure refuses the change.
+        /// </summary>
+        private async Task<(string Field, string Message)?> LeavesAnAdministratorAsync(
+            RolePermissionMap map, IReadOnlyDictionary<string, IReadOnlySet<string>> held, string? except, CancellationToken ct)
+        {
+            var exceptKey = except is null ? null : UserRoleRow.Normalize(except);
+
+            // Roles that grant it by themselves; if being a member were enough, everybody in the group would count.
+            if (Administers(map, Array.Empty<string>()))
+                return null;
+
+            var candidates = held
+                .Where(h => h.Key != exceptKey && Administers(map, h.Value))
+                .Select(h => h.Key)
+                .ToList();
+
+            try
+            {
+                if (candidates.Count > 0)
+                {
+                    var enabled = (await _group.GetUsersAsync(candidates, ct))
+                        .Where(a => a.AccountEnabled)
+                        .Select(a => a.User.ObjectId);
+
+                    foreach (var objectId in enabled)
+                        if (await _group.HasAccessAsync(objectId, ct))
+                            return null;
+                }
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "The administrators could not be counted; the change is refused.");
+                return ("directory", ex.Message);
+            }
+
+            return ("roles", "This change would leave nobody able to administer access. Give the administration to somebody else first.");
+        }
+
+        /// <summary>Saves the staged change and its audit entry. If Graph already changed, the log line is the record.</summary>
+        private async Task SaveAuditedAsync(AdminActor actor, string what, string details)
+        {
+            try
+            {
+                await _context.SaveChangesAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex,
+                    "AUDIT WRITE FAILED. {Actor} ({ActorId}) changed {What}: {Details}.",
+                    actor.Identity.Email, actor.Identity.SubjectId, what, details);
+                throw;
+            }
+        }
+
+        private async Task NotifyAsync(DirectoryUser target, IReadOnlyList<string> added, IReadOnlyList<string> removed, AdminActor actor)
+        {
+            try
+            {
+                await _notifier.NotifyAsync(new AccessChange(
+                    UserRoleRow.Normalize(target.ObjectId),
+                    target.Label,
+                    added,
+                    removed,
+                    actor.Identity.SubjectId,
+                    actor.Identity.Email ?? actor.Identity.SubjectId ?? "(unknown)",
+                    DateTimeOffset.UtcNow), CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "The access change of {ObjectId} was applied but could not be published.", target.ObjectId);
+            }
+        }
+
+        // ── Reading ──────────────────────────────────────────────────────────────
+
+        /// <summary>A person as the administration sees them: Entra's half and the database's half.</summary>
+        private sealed record Person(DirectoryUser User, bool InDirectory, bool AccountEnabled, bool IsMember, IReadOnlySet<string> Roles)
+        {
+            public bool HasAccess => InDirectory && AccountEnabled && IsMember;
+        }
+
+        /// <summary>The person, or null when neither Entra nor the database knows them.</summary>
+        private async Task<Person?> ReadPersonAsync(string objectId, CancellationToken ct)
+        {
+            var key = UserRoleRow.Normalize(objectId);
+
+            // The two Graph calls go out together, and the database is read while they travel: one round trip.
+            var accountCall = _group.GetUserAsync(objectId, ct);
+            var memberCall = _group.HasAccessAsync(objectId, ct);
+
+            var roles = (await _context.Set<UserRoleRow>().AsNoTracking()
+                    .Where(r => r.ObjectId == key).Select(r => r.RoleValue).ToListAsync(ct))
+                .ToHashSet(StringComparer.Ordinal);
+
+            await Task.WhenAll(accountCall, memberCall);
+
+            var account = await accountCall;
+            if (account is null)
+                return roles.Count == 0 ? null : new Person(Unknown(key), false, false, false, roles);
+
+            return new Person(account.User, true, account.AccountEnabled, await memberCall, roles);
+        }
+
+        /// <summary>Who holds which role: object id → role values.</summary>
+        private async Task<IReadOnlyDictionary<string, IReadOnlySet<string>>> HeldRolesAsync(CancellationToken ct)
+        {
+            var rows = await _context.Set<UserRoleRow>().AsNoTracking()
+                .Select(r => new { r.ObjectId, r.RoleValue })
+                .ToListAsync(ct);
+
+            return rows
+                .GroupBy(r => r.ObjectId, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => (IReadOnlySet<string>)g.Select(r => r.RoleValue).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+        }
+
+        private static IReadOnlySet<string> RolesIn(IReadOnlyDictionary<string, IReadOnlySet<string>> held, string objectId) =>
+            held.TryGetValue(UserRoleRow.Normalize(objectId), out var roles) ? roles : new HashSet<string>(StringComparer.Ordinal);
+
+        private static DirectoryUser Unknown(string objectId) => new(objectId, null, null, null, false);
+
+        /// <summary>Everything a role answer needs, read once: the map, the roles' names, who holds what, the caller's roles.</summary>
+        private sealed record RoleContext(
+            RolePermissionMap Map,
+            IReadOnlyDictionary<string, RoleRow> Rows,
+            IReadOnlyDictionary<string, IReadOnlySet<string>> Held,
+            IReadOnlySet<string> ActorRoles)
+        {
+            public string NameOf(string value) => Rows.TryGetValue(value, out var row) ? row.Name : value;
+        }
+
+        private async Task<RoleContext> RoleContextAsync(
+            AdminActor actor, IReadOnlyDictionary<string, IReadOnlySet<string>> held, CancellationToken ct)
+        {
+            var map = await _roles.GetAsync(ct);
+            var rows = await _context.Set<RoleRow>().AsNoTracking().ToDictionaryAsync(r => r.RoleValue, StringComparer.Ordinal, ct);
+
+            var actorRoles = actor.IsPerson ? RolesIn(held, actor.Identity.SubjectId!) : new HashSet<string>(StringComparer.Ordinal);
+
+            return new RoleContext(map, rows, held, actorRoles);
+        }
+
+        private RoleResponse ToRoleResponse(string value, RoleContext context, AdminActor actor)
+        {
+            context.Rows.TryGetValue(value, out var row);
+            var grants = context.Map.GrantsOf(value);
+            var covered = context.Map.IsCoveredBy(value, actor.Permissions);
+
+            return new RoleResponse
+            {
+                Value = value,
+                Name = row?.Name ?? value,
+                Description = row?.Description,
+                Permissions = grants.Where(c => _declared.Find(c) is not null).OrderBy(c => c, StringComparer.Ordinal).ToList(),
+                UnknownPermissions = grants.Where(c => _declared.Find(c) is null).OrderBy(c => c, StringComparer.Ordinal).ToList(),
+                Configured = grants.Any(c => _declared.Find(c) is not null),
+                Assignable = covered,
+                Editable = actor.IsPerson && !actor.IsSimulating && covered && !context.ActorRoles.Contains(value),
+                UserCount = context.Held.Count(h => h.Value.Contains(value)),
+                Version = VersionOf(grants)
+            };
+        }
+
+        private AccessUserResponse ToResponse(Person person, AdminActor actor, RoleContext context) =>
+            ToResponse(person.User, person.InDirectory, person.AccountEnabled, person.IsMember, person.Roles, actor, context);
+
+        private AccessUserResponse ToResponse(
+            DirectoryUser user, bool inDirectory, bool accountEnabled, bool isMember, IReadOnlySet<string> roles,
+            AdminActor actor, RoleContext context)
+        {
+            var hasAccess = inDirectory && accountEnabled && isMember;
+            return new AccessUserResponse
+            {
+                ObjectId = UserRoleRow.Normalize(user.ObjectId),
+                DisplayName = user.DisplayName,
+                Email = user.Email,
+                UserPrincipalName = user.UserPrincipalName,
+                IsGuest = user.IsGuest,
+                InDirectory = inDirectory,
+                AccountEnabled = accountEnabled,
+                IsMember = isMember,
+                HasAccess = hasAccess,
+                IsSelf = actor.Is(user.ObjectId),
+                Roles = roles
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .Select(value => new AssignedRoleResponse
+                    {
+                        Value = value,
+                        Name = context.NameOf(value),
+                        Configured = context.Map.EffectivePermissions(new[] { value }).Count > 0,
+                        Assignable = context.Map.IsCoveredBy(value, actor.Permissions)
+                    })
+                    .ToList(),
+                Permissions = hasAccess
+                    ? context.Map.ForMember(roles).OrderBy(code => code, StringComparer.Ordinal).ToList()
+                    : new List<string>()
+            };
+        }
+
+        /// <summary>A short fingerprint of a permission set, for optimistic concurrency.</summary>
+        private static string VersionOf(IReadOnlySet<string> grants)
+        {
+            var text = string.Join("\n", grants.OrderBy(c => c, StringComparer.Ordinal));
+            return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
+        }
+
+        private static List<string> Codes(IEnumerable<string>? codes) =>
+            (codes ?? Array.Empty<string>())
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Select(code => code.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+        private static string? Clean(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+    }
+}

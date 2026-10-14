@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Microsoft Entra ID as the identity provider (UseEntraId): the Entra JWT people sign in with, and who may use
+       the application at all — whether a person is in the access group and whether their account is enabled,
+       read through Microsoft Graph with application permissions (IMembershipSource). The roles are NOT here:
+       they are the application's own, stored in its database.
+
+       Also the shared Graph plumbing (credential, HTTP client), which kdyf.Authorization.Administration.EntraId
+       reuses for the WRITE side. The dependency runs that way — administration on authorization — and
+       never the other way round.
+
+       Plain REST, not the Graph SDK: a handful of calls, and the SDK brings a large dependency tree
+       plus version conflicts with Microsoft.Identity.Web. -->
+  <PropertyGroup>
+    <Description>Microsoft Entra ID for kdyf.Authorization: sign-in with the Entra token, and who may use the application decided through Microsoft Graph — a security group or assignments to the Enterprise application.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Microsoft.Extensions.Http and the options APIs come with the ASP.NET Core framework. -->
+    <PackageReference Include="Azure.Identity" />
+    <!-- 4.x: the line that targets net10.0. 3.x pulls Microsoft.AspNetCore.Authentication.JwtBearer
+         and OpenIdConnect 9.0.0 — packages, not part of the shared framework — so the handler that
+         validates Entra tokens would run on .NET 9 bits. Versions: Directory.Packages.props. -->
+    <PackageReference Include="Microsoft.Identity.Web" />
+    <!-- Lifted explicitly: Identity.Web 4.x asks only for 10.0.0, the first .NET 10 release. These
+         validate every token, so Directory.Packages.props keeps them on the latest 10.0.x servicing patch. -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\kdyf.Authorization\kdyf.Authorization.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="kdyf.Authorization.EntraId.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.AspNetCore.Test" />
+  </ItemGroup>
+
+</Project>

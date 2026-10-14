@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- AUTHORIZATION: "may this one here?". Runs on every request.
+
+       Permissions and policies declared as classes, the handler, the policy provider, the
+       wildcards, the cache, the PAT scheme, user simulation and the policy report that tells
+       the caller what they may do.
+
+       RULE: this project knows nothing about administration. Not a single reference to
+       kdyf.Authorization.Administration.*: the dependency goes the other way, and a test guards it.
+       No EF either, nor anything from a consumer: the source of permissions is supplied by whoever
+       implements IPermissionStore (there is a ready-made one in kdyf.Authorization.EntityFrameworkCore).
+
+       Origin: kdyf.auth.Permissions 1.1.0 (kdyf.admin), without the administration contracts
+       (IAuditLog, IDirectoryService, IInvitationNotifier), which moved to kdyf.Authorization.Administration. -->
+  <PropertyGroup>
+    <Description>Permission-based authorization for ASP.NET Core: permissions and policies declared as classes, wildcards, a cached permission store, personal access tokens (PAT) and read-only user simulation.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591: we do not require an XML comment on constructors and trivial overrides. -->
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- FrameworkReference and not PackageReference: provides ASP.NET Core Authorization, Routing,
+       Caching and Hosting without pinning package versions. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="kdyf.Authorization.Test" />
+  </ItemGroup>
+
+</Project>

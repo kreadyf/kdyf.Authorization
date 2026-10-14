@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ACCESS ADMINISTRATION against Microsoft Entra ID, over Microsoft Graph:
+       - IAccessDirectory: list who has access, give it and take it away — the members of the Entra access group,
+         or the users assigned the Access app role on the Enterprise application, as Directory:Gate says.
+       - IDirectoryService: search people in the tenant and invite external users (B2B).
+
+       Reuses the Graph plumbing of kdyf.Authorization.EntraId (credential, client):
+       administration depends on authorization, never the other way round. -->
+  <PropertyGroup>
+    <Description>Microsoft Entra ID for the kdyf.Authorization administration: giving and taking access (group membership or app assignments), searching people and B2B invitations through Microsoft Graph.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- The ASP.NET Core framework, like kdyf.Authorization.EntraId: without it, Microsoft.Identity.Web would resolve
+       framework assemblies as (older, vulnerable) packages. It also provides the options and configuration APIs. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\kdyf.Authorization.Administration\kdyf.Authorization.Administration.csproj" />
+    <ProjectReference Include="..\kdyf.Authorization.EntraId\kdyf.Authorization.EntraId.csproj" />
+  </ItemGroup>
+
+</Project>

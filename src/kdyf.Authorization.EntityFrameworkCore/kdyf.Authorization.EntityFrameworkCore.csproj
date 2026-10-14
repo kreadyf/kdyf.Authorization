@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- AUTHORIZATION persistence over EF Core: the permission catalog (auth.Permission, written from
+       the PermissionDefinition classes by PermissionCatalogSynchronizer at startup), the roles
+       (auth.Role), what each grants (auth.RolePermission), who holds which (auth.UserRole, keyed by
+       the Entra object id) and the personal access tokens (auth.PersonalAccessToken); their mapping
+       (ApplyAuthorizationModel), the role sources and the PAT store, which resolves a token's
+       permissions through its owner's.
+
+       Who may use the application at all is NOT here: it is the Entra access group
+       (kdyf.Authorization.EntraId).
+
+       The audit table is NOT here either: it belongs to administration (kdyf.Authorization.Administration).
+       EF Core does not create these tables: the host's SQL script does. -->
+  <PropertyGroup>
+    <Description>EF Core store for kdyf.Authorization: roles, what they grant, who holds them, personal access tokens and the permission catalog in the auth.* tables, on the database provider the host chooses.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\kdyf.Authorization\kdyf.Authorization.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="kdyf.Authorization.EntityFrameworkCore.Test" />
+  </ItemGroup>
+
+</Project>

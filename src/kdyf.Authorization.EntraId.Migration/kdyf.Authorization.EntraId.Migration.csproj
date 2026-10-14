@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- THE MIGRATION of the access gate, from the Entra access group to assignments to the Enterprise application
+       (Directory:Gate = Migrating). Only while it lasts, and only in the host that administers access:
+       - a background sync that keeps the assignments of the Access app role equal to the group, audited;
+       - the access directory that writes every change of the administration to the group AND to the assignments.
+       Removed once the gate is AppAssignment. -->
+  <PropertyGroup>
+    <Description>Temporary: moves the kdyf.Authorization access gate from an Entra security group to assignments to the Enterprise application — dual writes and an audited background sync.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\kdyf.Authorization.Administration.AspNetCore\kdyf.Authorization.Administration.AspNetCore.csproj" />
+    <ProjectReference Include="..\kdyf.Authorization.Administration.EntraId\kdyf.Authorization.Administration.EntraId.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="kdyf.Authorization.EntraId.Test" />
+  </ItemGroup>
+
+</Project>

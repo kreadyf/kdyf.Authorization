@@ -1,0 +1,40 @@
+<Project>
+
+  <!-- Central package management: every version lives here, exact. A floating version (10.0.*) in a package is
+       published as its lower bound, so consumers would not get the patch the floating range was meant to bring. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Lets a transitive dependency be lifted here (see System.Security.Cryptography.Pkcs). -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <!-- Libraries -->
+  <ItemGroup>
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Identity.Web" Version="4.15.0" />
+  </ItemGroup>
+
+  <!-- Transitive, lifted: Microsoft.Identity.Web 4.15.0 brings 10.0.10, which has known vulnerabilities
+       (GHSA-2fmv-rv2c-59x7, GHSA-846f-f764-76mx). -->
+  <ItemGroup>
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+  </ItemGroup>
+
+  <!-- Tests -->
+  <ItemGroup>
+    <PackageVersion Include="coverlet.collector" Version="6.0.2" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
+    <!-- The libraries leave the database provider to the host; the tests build SQL Server contexts in memory. -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageVersion Include="Moq" Version="4.20.72" />
+    <PackageVersion Include="MSTest.TestAdapter" Version="3.4.3" />
+    <PackageVersion Include="MSTest.TestFramework" Version="3.4.3" />
+  </ItemGroup>
+
+</Project>
