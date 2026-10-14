@@ -16,7 +16,7 @@ namespace kdyf.Authorization.Abstractions
     /// </para>
     /// <para>
     /// A class per permission rather than entries in a list: it gives each one a place for its own
-    /// remarks, and it is what makes <see cref="DiscoverIn"/> able to find them without any registry
+    /// remarks, and it is what makes <see cref="PermissionDefinition.DiscoverIn(System.Reflection.Assembly)"/> able to find them without any registry
     /// to keep in step.
     /// </para>
     /// <para>

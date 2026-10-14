@@ -33,6 +33,13 @@ namespace kdyf.Authorization.Administration
         private readonly SimulationSessions? _sessions;
         private readonly IMembershipSource? _directory;
 
+        /// <param name="identities">Who the caller is: their e-mail and immutable id.</param>
+        /// <param name="permissions">What the caller holds.</param>
+        /// <param name="store">What the person to simulate holds.</param>
+        /// <param name="recorder">Where starts and ends are recorded.</param>
+        /// <param name="access">Who has access: the candidates.</param>
+        /// <param name="scopes">A scope per candidate, so their permissions are read in parallel.</param>
+        /// <param name="logger">Where each start and end is logged.</param>
         /// <param name="options">Null when simulation is not switched on: every operation then refuses.</param>
         /// <param name="targets">Registered with simulation, like <paramref name="sessions"/>.</param>
         /// <param name="sessions">Which simulations are running.</param>

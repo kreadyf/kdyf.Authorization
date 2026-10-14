@@ -19,9 +19,11 @@ namespace kdyf.Authorization.EntityFrameworkCore
         /// Runs before every other hosted service, whatever the order of the registrations: a check
         /// that reads the catalog would otherwise fail on precisely the rows this is about to write.
         /// </remarks>
+        /// <param name="services">The host's services.</param>
         /// <param name="declarations">
         /// The assembly holding the <c>PermissionDefinition</c> subclasses — normally the host's own.
         /// </param>
+        /// <param name="configure">More assemblies to read, when the declarations are spread over several.</param>
         public static IServiceCollection AddPermissionCatalogSync<TContext>(
             this IServiceCollection services,
             Assembly declarations,

@@ -100,6 +100,15 @@ nor Entra ID: in-memory SQLite and an in-memory Microsoft Graph.
 To try the packages in another solution before they are published, `pack-local.ps1` builds, tests and packs them into
 a local feed (`C:\Nuget` by default) with a unique version suffix per run.
 
+## Branches
+
+`develop` is where work lands, through pull requests; `master` is what has been released. A release is a tag on
+`master`, `v<version>` (for example `v1.0.0-preview.2`); every package of a release carries that version.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) to report a vulnerability.
+
 ## License
 
 [MIT](LICENSE)

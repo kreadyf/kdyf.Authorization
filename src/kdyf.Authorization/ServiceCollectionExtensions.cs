@@ -175,6 +175,7 @@ namespace kdyf.Authorization
         /// always 403) is too quiet to leave to each declaration.
         /// </para>
         /// </remarks>
+        /// <param name="assembly">The assembly whose <c>Policy</c> subclasses are registered.</param>
         /// <param name="shortcuts">
         /// Optional: a static class holding one field per policy, for naming them in an endpoint.
         /// Every field is checked against what was actually registered.

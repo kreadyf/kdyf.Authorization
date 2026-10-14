@@ -12,8 +12,8 @@
   </PropertyGroup>
 
   <!-- Every package of the solution ships with the same version: AspNetCore and Administration.AspNetCore share
-       internals, so a mismatched pair could break without any public API changing. pack-local.ps1 and the pipeline
-       set VersionSuffix. -->
+       internals, so a mismatched pair could break without any public API changing. pack-local.ps1 sets VersionSuffix;
+       the release workflow sets Version from the tag (v1.0.0-preview.2 -> 1.0.0-preview.2). -->
   <PropertyGroup>
     <VersionPrefix>1.0.0</VersionPrefix>
     <VersionSuffix Condition="'$(VersionSuffix)' == ''">preview.1</VersionSuffix>
@@ -30,7 +30,8 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <ContinuousIntegrationBuild Condition="'$(TF_BUILD)' == 'true'">true</ContinuousIntegrationBuild>
+    <!-- Deterministic paths in the published symbols: on Azure Pipelines and on GitHub Actions. -->
+    <ContinuousIntegrationBuild Condition="'$(TF_BUILD)' == 'true' or '$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <!-- Only the libraries under src/ are packages. Tests stay IsPackable=false. -->

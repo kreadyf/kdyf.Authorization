@@ -46,6 +46,10 @@ namespace kdyf.Authorization.Simulation
         private readonly ILogger<SimulationClaimsTransformation> _logger;
         private readonly IClaimsTransformation? _inner;
 
+        /// <param name="http">The request being decided.</param>
+        /// <param name="options">How simulation is configured: the header, the permission, read-only.</param>
+        /// <param name="identityOptions">Which claims name a person, for building the borrowed identity.</param>
+        /// <param name="logger">Where every simulated request and every refusal is logged.</param>
         /// <param name="inner">
         /// A transformation the consumer already had — directory roles, tenant claims, anything.
         /// ASP.NET Core resolves <see cref="IClaimsTransformation"/> as a SINGLE service, so
