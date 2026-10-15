@@ -40,6 +40,9 @@ namespace kdyf.Authorization.Migrations.Schema
               verify             The schema is at the required version and equals its manifest. Read-only.
               cutover            Record CutoverCompleted: from then on the legacy import refuses to run.
               legacy-report      What a legacy kdyf.auth.* schema holds and what its import would decide. Read-only.
+              resolve            (host) Resolve the legacy users in Entra and snapshot both gates. --incremental keeps the unchanged.
+              identities export <file> | import <file> --approver <name>
+                                 (host) The review of the identities: approvals, and object ids given by hand.
 
             Options:
               --schema <name>        The schema (default: the host's configuration, or 'auth').
@@ -52,7 +55,16 @@ namespace kdyf.Authorization.Migrations.Schema
 
         /// <summary>Runs one command. <paramref name="args"/> start after <c>kdyf-auth</c>.</summary>
         public static async Task<int> RunAsync(
-            IReadOnlyList<string> args, string connectionString, string defaultSchema, TextWriter output, CancellationToken cancellationToken = default)
+            IReadOnlyList<string> args, string connectionString, string defaultSchema, TextWriter output, CancellationToken cancellationToken = default) =>
+            await RunAsync(args, connectionString, defaultSchema, output, services: null, cancellationToken);
+
+        /// <summary>
+        /// Runs one command, with the host's services for the commands that need them (the legacy identities: the
+        /// directory and the access gates).
+        /// </summary>
+        public static async Task<int> RunAsync(
+            IReadOnlyList<string> args, string connectionString, string defaultSchema, TextWriter output, IServiceProvider? services,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(args);
             ArgumentNullException.ThrowIfNull(output);
@@ -64,6 +76,8 @@ namespace kdyf.Authorization.Migrations.Schema
             }
 
             var command = args[0].ToLowerInvariant();
+            if (Legacy.LegacyCommands.Handles(command))
+                return await Legacy.LegacyCommands.RunAsync(args, connectionString, defaultSchema, services, output, cancellationToken);
             var options = new SchemaMigrationOptions { Schema = defaultSchema };
             string? file = null;
             var legacySchema = "auth";

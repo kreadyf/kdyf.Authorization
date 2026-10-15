@@ -40,7 +40,7 @@ namespace kdyf.Authorization.Migrations.Schema
                 return true;
             }
 
-            Environment.ExitCode = await SchemaCommandLine.RunAsync(args.Skip(1).ToList(), connectionString, store.Schema, Console.Out, cancellationToken);
+            Environment.ExitCode = await SchemaCommandLine.RunAsync(args.Skip(1).ToList(), connectionString, store.Schema, Console.Out, host.Services, cancellationToken);
             return true;
         }
     }
