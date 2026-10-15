@@ -29,7 +29,8 @@ namespace kdyf.Authorization.Migrations.Legacy
         {
             // Exact equality on the two properties that name a person's own address, and nothing else. The single quote is
             // doubled, which is how a literal is escaped inside $filter.
-            var value = email.Trim().ToLowerInvariant().Replace("'", "''");
+            // Then URL-encoded: a guest's UPN carries '#EXT#', and '#' would end the query; '+' would arrive as a space.
+            var value = Uri.EscapeDataString(email.Trim().ToLowerInvariant().Replace("'", "''"));
             var found = await _graph.GetAllAsync<GraphUser>(
                 $"users?$select={Fields}&$count=true&$filter=userPrincipalName eq '{value}' or mail eq '{value}'",
                 "looking up a legacy user by e-mail", cancellationToken, eventualConsistency: true);

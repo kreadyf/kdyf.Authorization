@@ -158,3 +158,28 @@ public sealed class AppAssignmentGateTests
     private static IMembershipSource Source(ServiceProvider services) =>
         services.CreateScope().ServiceProvider.GetRequiredService<IMembershipSource>();
 }
+
+/// <summary>Looking people up by e-mail, as Graph sees the URL: every character of the address arrives.</summary>
+[TestClass]
+public sealed class GraphEmailLookupTests
+{
+    /// <summary>
+    /// A guest's UPN carries '#EXT#', and plus addressing a '+': unencoded, '#' ended the query (Graph saw a broken
+    /// filter) and '+' arrived as a space. Found against a real tenant by the legacy import's resolution.
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("ana+orders@test.example")]
+    [DataRow("guest_outside.test#EXT#@tenant.example")]
+    [DataRow("o'brien@test.example")]
+    public async Task An_address_with_reserved_characters_is_found(string email)
+    {
+        var graph = new FakeGraph().Person("0a000000-0000-0000-0000-00000000000a");
+        graph.Emails["0a000000-0000-0000-0000-00000000000a"] = email;
+        using var services = graph.Services();
+        using var scope = services.CreateScope();
+
+        var found = await scope.ServiceProvider.GetRequiredService<IMembershipSource>().FindByEmailAsync(email);
+
+        Assert.AreEqual("0a000000-0000-0000-0000-00000000000a", found?.SubjectId, string.Join("\n", graph.Requests));
+    }
+}

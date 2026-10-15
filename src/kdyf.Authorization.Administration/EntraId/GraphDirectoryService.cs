@@ -60,7 +60,8 @@ namespace kdyf.Authorization.Administration.EntraId
             // empty and their UPN carries #EXT#, so without it they would be invited twice), the UPN for an
             // internal member. otherMails/any is an advanced query: eventual consistency + $count. The single
             // quote is doubled, which is how a literal is escaped inside $filter.
-            var value = email.Trim().ToLowerInvariant().Replace("'", "''");
+            // Then URL-encoded: a guest's UPN carries '#EXT#', and '#' would end the query; '+' would arrive as a space.
+            var value = Uri.EscapeDataString(email.Trim().ToLowerInvariant().Replace("'", "''"));
             var url = $"users?$select={UserFields}&$count=true" +
                       $"&$filter=mail eq '{value}' or otherMails/any(m:m eq '{value}') or userPrincipalName eq '{value}'&$top=1";
 

@@ -19,7 +19,8 @@ namespace kdyf.Authorization.EntraId
             // 'mail' for members and redeemed guests, 'otherMails' for a guest who has not redeemed
             // yet, the UPN for internal accounts. The single quote is doubled: that is how a literal is
             // escaped inside $filter. otherMails/any is an advanced query: eventual consistency + $count.
-            var value = normalized.Replace("'", "''");
+            // Then URL-encoded: a guest's UPN carries '#EXT#', and '#' would end the query; '+' would arrive as a space.
+            var value = Uri.EscapeDataString(normalized.Replace("'", "''"));
             var url = "users?$select=id,displayName,mail&$count=true" +
                       $"&$filter=mail eq '{value}' or otherMails/any(m:m eq '{value}') or userPrincipalName eq '{value}'&$top=2";
 

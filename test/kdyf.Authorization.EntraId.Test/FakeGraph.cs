@@ -34,6 +34,9 @@ internal sealed class FakeGraph : HttpMessageHandler
     /// <summary>Every assignment in the tenant: id, principal, principal type, resource and role.</summary>
     public List<(string Id, string Principal, string Type, string Resource, string Role)> Assignments { get; } = [];
 
+    /// <summary>Addresses: object id → the e-mail and UPN a $filter by e-mail matches.</summary>
+    public Dictionary<string, string> Emails { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Every request, as "METHOD path?query".</summary>
     public List<string> Requests { get; } = [];
 
@@ -92,6 +95,16 @@ internal sealed class FakeGraph : HttpMessageHandler
                 ? Json(new { id = user, accountEnabled = enabled })
                 : Status(HttpStatusCode.NotFound);
 
+        // users?$filter=mail eq '…' or … userPrincipalName eq '…': what arrived of the query is all Graph sees. A '#' sent
+        // unencoded never arrives (it starts the fragment), and a '+' arrives as a space: then nothing matches.
+        if (request.Method == HttpMethod.Get && segments is ["users"] && query.Contains("$filter=", StringComparison.Ordinal))
+        {
+            // As a server reads it: '+' in a query string is a space.
+            var received = Uri.UnescapeDataString(request.RequestUri.Query.Replace('+', ' '));
+            var wanted = Literals(received).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return Json(new { value = Emails.Where(e => wanted.Contains(e.Value)).Select(e => new { id = e.Key, mail = e.Value, userPrincipalName = e.Value, displayName = e.Value }) });
+        }
+
         // users/{id}/checkMemberGroups
         if (request.Method == HttpMethod.Post && segments is ["users", var member, "checkMemberGroups"])
             return People.ContainsKey(member)
@@ -147,6 +160,34 @@ internal sealed class FakeGraph : HttpMessageHandler
 
     private static object Shape((string Id, string Principal, string Type, string Resource, string Role) a) =>
         new { id = a.Id, principalId = a.Principal, principalType = a.Type, resourceId = a.Resource, appRoleId = a.Role };
+
+    /// <summary>The string literals of an OData filter: between single quotes, a doubled quote being one quote.</summary>
+    private static IEnumerable<string> Literals(string filter)
+    {
+        var literal = new StringBuilder();
+        var inside = false;
+        for (var i = 0; i < filter.Length; i++)
+        {
+            if (filter[i] != '\'')
+            {
+                if (inside)
+                    literal.Append(filter[i]);
+                continue;
+            }
+            if (inside && i + 1 < filter.Length && filter[i + 1] == '\'')
+            {
+                literal.Append('\'');
+                i++;
+                continue;
+            }
+            if (inside)
+            {
+                yield return literal.ToString();
+                literal.Clear();
+            }
+            inside = !inside;
+        }
+    }
 
     private static HttpResponseMessage Json(object value, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json") };
