@@ -9,7 +9,7 @@ namespace kdyf.Authorization.Administration.EntraId
     /// <summary>
     /// The access directory while the gate migrates (<see cref="AccessGate.Migrating"/>): it reads the access group, which
     /// still decides, and writes every change to the group AND to the assignments. Implemented by
-    /// kdyf.Authorization.EntraId.Migration.
+    /// kdyf.Authorization.Migrations.
     /// </summary>
     public interface IMigratingAccessDirectory : IAccessDirectory
     {
@@ -37,7 +37,7 @@ namespace kdyf.Authorization.Administration.EntraId
             options.Directory.Gate == AccessGate.Migrating && _services.GetService<GateMigrationRegistration>() is null
                 ? ValidateOptionsResult.Fail(
                     "Directory:Gate is Migrating, but this host administers access without the migration: add the package "
-                    + "kdyf.Authorization.EntraId.Migration and call AddKdyfAuthorizationGateMigration() after AddKdyfAuthorizationAdministration(...).")
+                    + "kdyf.Authorization.Migrations and call AddKdyfAuthorizationGateMigration() after AddKdyfAuthorizationAdministration(...).")
                 : ValidateOptionsResult.Success;
     }
 }
@@ -72,7 +72,7 @@ namespace Microsoft.Extensions.DependencyInjection
                 AccessGate.AppAssignment => provider.GetRequiredService<GraphAccessAssignmentDirectory>(),
                 AccessGate.Migrating => provider.GetService<IMigratingAccessDirectory>()
                     ?? throw new InvalidOperationException(
-                        "Directory:Gate is Migrating: the access directory is kdyf.Authorization.EntraId.Migration's (AddKdyfAuthorizationGateMigration)."),
+                        "Directory:Gate is Migrating: the access directory is kdyf.Authorization.Migrations's (AddKdyfAuthorizationGateMigration)."),
                 _ => provider.GetRequiredService<GraphAccessGroupDirectory>(),
             });
             services.AddScoped<IDirectoryService, GraphDirectoryService>();

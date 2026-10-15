@@ -2,7 +2,9 @@
 
   <!-- Common to every project of the solution. What is specific to one project goes in its .csproj. -->
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- .NET 8 (LTS) and .NET 10: one package serves hosts on either. The versions of the framework-tied packages
+         follow the target (Directory.Packages.props). -->
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -11,7 +13,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
-  <!-- Every package of the solution ships with the same version: AspNetCore and Administration.AspNetCore share
+  <!-- Every package of the solution ships with the same version: AspNetCore and Administration share
        internals, so a mismatched pair could break without any public API changing. pack-local.ps1 sets VersionSuffix;
        the release workflow sets Version from the tag (v1.0.0-preview.2 -> 1.0.0-preview.2). -->
   <PropertyGroup>

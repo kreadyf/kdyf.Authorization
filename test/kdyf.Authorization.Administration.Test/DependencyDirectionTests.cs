@@ -34,6 +34,11 @@ public sealed class DependencyDirectionTests
     public void Authorization_over_Entra_does_not_reference_administration() =>
         AssertNoAdministrationReference(typeof(GraphMembershipSource).Assembly);
 
+    /// <summary>The host composition and the session endpoints stay usable by a host that only authorizes.</summary>
+    [TestMethod]
+    public void Authorization_for_a_host_does_not_reference_administration() =>
+        AssertNoAdministrationReference(typeof(kdyf.Authorization.AspNetCore.KdyfAuthorizationBuilder).Assembly);
+
     [TestMethod]
     public void Administration_references_authorization()
     {

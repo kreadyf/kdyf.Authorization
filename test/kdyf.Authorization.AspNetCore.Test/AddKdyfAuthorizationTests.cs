@@ -149,8 +149,9 @@ public sealed class AddKdyfAuthorizationTests
 
         var db = scope.ServiceProvider.GetRequiredService<AuthorizationDbContext>();
         Assert.AreEqual("Microsoft.EntityFrameworkCore.SqlServer", db.Database.ProviderName);
-        // SQL Server normalises it (Server → Data Source, plus an Application Name).
-        StringAssert.StartsWith(db.Database.GetConnectionString(), "Data Source=unused;");
+        // The server the host configured. Compared parsed: EF Core 10 normalises the string (Server → Data Source, plus an
+        // Application Name) and EF Core 8 keeps it as given.
+        Assert.AreEqual("unused", new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(db.Database.GetConnectionString()).DataSource);
     }
 
     // ── Graph ────────────────────────────────────────────────────────────────

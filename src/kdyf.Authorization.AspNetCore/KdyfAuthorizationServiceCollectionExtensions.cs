@@ -52,7 +52,7 @@ namespace Microsoft.Extensions.DependencyInjection
         /// </list>
         /// <para>
         /// No administration and no endpoints. A host that administers access adds
-        /// <c>AddKdyfAuthorizationAdministration</c> (kdyf.Authorization.Administration.AspNetCore) on top of this.
+        /// <c>AddKdyfAuthorizationAdministration</c> (kdyf.Authorization.Administration) on top of this.
         /// </para>
         /// <para>
         /// Every part of the section is validated when the host starts: with a missing or inconsistent value the host

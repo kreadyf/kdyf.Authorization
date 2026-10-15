@@ -5,7 +5,7 @@
        read through Microsoft Graph with application permissions (IMembershipSource). The roles are NOT here:
        they are the application's own, stored in its database.
 
-       Also the shared Graph plumbing (credential, HTTP client), which kdyf.Authorization.Administration.EntraId
+       Also the shared Graph plumbing (credential, HTTP client), which kdyf.Authorization.Administration
        reuses for the WRITE side. The dependency runs that way — administration on authorization — and
        never the other way round.
 

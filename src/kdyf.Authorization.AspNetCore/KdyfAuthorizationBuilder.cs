@@ -12,7 +12,7 @@ namespace kdyf.Authorization.AspNetCore
     /// </summary>
     /// <remarks>
     /// Authorization only. The policies that guard the administration and the tokens belong to
-    /// <c>AddKdyfAuthorizationAdministration</c> (kdyf.Authorization.Administration.AspNetCore), and the one that turns simulation on
+    /// <c>AddKdyfAuthorizationAdministration</c> (kdyf.Authorization.Administration), and the one that turns simulation on
     /// to <c>AddKdyfAuthorizationSimulation</c> — each registered by whoever owns that feature.
     /// </remarks>
     public sealed class KdyfAuthorizationBuilder : IKdyfAuthorizationBuilder
@@ -86,7 +86,7 @@ namespace kdyf.Authorization.AspNetCore
         }
 
         /// <summary>The one permission a policy demands, or a registration error naming what it demands instead.</summary>
-        /// <remarks>Internal, and shared with the simulation and with kdyf.Authorization.Administration.AspNetCore, whose
+        /// <remarks>Internal, and shared with the simulation and with kdyf.Authorization.Administration, whose
         /// policies have the same rule.</remarks>
         internal static string SinglePermission(Policy policy, string purpose)
         {

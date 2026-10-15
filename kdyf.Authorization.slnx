@@ -1,13 +1,9 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/kdyf.Authorization.Administration.AspNetCore/kdyf.Authorization.Administration.AspNetCore.csproj" />
-    <Project Path="src/kdyf.Authorization.Administration.Endpoints/kdyf.Authorization.Administration.Endpoints.csproj" />
-    <Project Path="src/kdyf.Authorization.Administration.EntraId/kdyf.Authorization.Administration.EntraId.csproj" />
     <Project Path="src/kdyf.Authorization.Administration/kdyf.Authorization.Administration.csproj" />
-    <Project Path="src/kdyf.Authorization.AspNetCore.Endpoints/kdyf.Authorization.AspNetCore.Endpoints.csproj" />
     <Project Path="src/kdyf.Authorization.AspNetCore/kdyf.Authorization.AspNetCore.csproj" />
     <Project Path="src/kdyf.Authorization.EntityFrameworkCore/kdyf.Authorization.EntityFrameworkCore.csproj" />
-    <Project Path="src/kdyf.Authorization.EntraId.Migration/kdyf.Authorization.EntraId.Migration.csproj" />
+    <Project Path="src/kdyf.Authorization.Migrations/kdyf.Authorization.Migrations.csproj" />
     <Project Path="src/kdyf.Authorization.EntraId/kdyf.Authorization.EntraId.csproj" />
     <Project Path="src/kdyf.Authorization/kdyf.Authorization.csproj" />
   </Folder>

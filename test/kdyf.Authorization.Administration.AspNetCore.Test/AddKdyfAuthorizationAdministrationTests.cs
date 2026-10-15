@@ -105,7 +105,7 @@ public sealed class AddKdyfAuthorizationAdministrationTests
 
         var error = Assert.ThrowsException<OptionsValidationException>(() =>
             provider.GetRequiredService<IOptions<kdyf.Authorization.EntraId.EntraIdAuthorizationOptions>>().Value);
-        StringAssert.Contains(error.Message, "kdyf.Authorization.EntraId.Migration");
+        StringAssert.Contains(error.Message, "kdyf.Authorization.Migrations");
     }
 
     /// <summary>One value for two jobs: the door of the administration and the code the lockout guard counts.</summary>

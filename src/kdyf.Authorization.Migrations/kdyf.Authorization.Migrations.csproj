@@ -4,7 +4,8 @@
        (Directory:Gate = Migrating). Only while it lasts, and only in the host that administers access:
        - a background sync that keeps the assignments of the Access app role equal to the group, audited;
        - the access directory that writes every change of the administration to the group AND to the assignments.
-       Removed once the gate is AppAssignment. -->
+       Removed once the gate is AppAssignment. Namespace kdyf.Authorization.EntraId.Migration, as before the package was
+       renamed; the package will also hold the migration of the legacy schema. -->
   <PropertyGroup>
     <Description>Temporary: moves the kdyf.Authorization access gate from an Entra security group to assignments to the Enterprise application — dual writes and an audited background sync.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -16,8 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\kdyf.Authorization.Administration.AspNetCore\kdyf.Authorization.Administration.AspNetCore.csproj" />
-    <ProjectReference Include="..\kdyf.Authorization.Administration.EntraId\kdyf.Authorization.Administration.EntraId.csproj" />
+    <ProjectReference Include="..\kdyf.Authorization.Administration\kdyf.Authorization.Administration.csproj" />
   </ItemGroup>
 
   <ItemGroup>

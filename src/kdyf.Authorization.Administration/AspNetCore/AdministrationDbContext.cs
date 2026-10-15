@@ -16,7 +16,7 @@ namespace kdyf.Authorization.Administration.AspNetCore
     /// keeps reading through its own <see cref="AuthorizationDbContext"/> — same database, same tables; the caches the
     /// administration invalidates are services, not contexts, so the two never disagree for longer than a request.
     /// </remarks>
-    public sealed class AdministrationDbContext : DbContext
+    public sealed class AdministrationDbContext : DbContext, ISchemaQualifiedContext
     {
         private readonly string _schema;
 
@@ -26,10 +26,17 @@ namespace kdyf.Authorization.Administration.AspNetCore
             _schema = store.Value.Schema;
         }
 
+        /// <inheritdoc />
+        public string Schema => _schema;
+
+        /// <summary>One model per schema, not one per context type: see <see cref="SchemaModelCacheKeyFactory"/>.</summary>
+        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
+            optionsBuilder.ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, SchemaModelCacheKeyFactory>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-            modelBuilder.ApplyAuthorizationModel(_schema);
+            modelBuilder.ApplyAuthorizationModel(_schema, ModelBuilderExtensions.KeyCollationFor(Database));
             modelBuilder.ApplyAdministrationModel(_schema);
         }
     }

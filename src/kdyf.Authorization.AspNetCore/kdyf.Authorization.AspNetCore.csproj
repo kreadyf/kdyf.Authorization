@@ -7,10 +7,17 @@
        Knows no database and no identity provider: the host plugs them in with the providers' own calls
        (UseEntityFrameworkStore, UseEntraId), from the packages it chooses to reference.
 
-       No administration and no endpoints. Administration is composed on top of this by
-       kdyf.Authorization.Administration.AspNetCore, which only a host that administers access references. -->
+       Endpoints/: the OPTIONAL endpoints of the session, GET auth/me and GET auth/policies, as minimal APIs that exist
+       only when the host calls MapKdyfAuthorizationSession(); and what every endpoint of the library shares: the
+       response writer a host replaces to keep its own envelope (IKdyfAuthorizationResultWriter), and the filter that
+       never lets a database or directory failure reach the client with its own text. Minimal APIs, never controllers:
+       MVC discovers controllers in every referenced assembly, so a host calling AddControllers() would get routes it
+       never asked for.
+
+       No administration. It is composed on top of this by kdyf.Authorization.Administration, which only a host that
+       administers access references. -->
   <PropertyGroup>
-    <Description>Composition of kdyf.Authorization for an ASP.NET Core host from one configuration section: AddKdyfAuthorization, UseKdyfAuthorization and user simulation, validated at startup.</Description>
+    <Description>Composition of kdyf.Authorization for an ASP.NET Core host from one configuration section: AddKdyfAuthorization, UseKdyfAuthorization, user simulation and the optional session endpoints (GET auth/me, GET auth/policies), validated at startup.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
@@ -25,8 +32,10 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="kdyf.Authorization.AspNetCore.Test" />
-    <!-- Composes administration on top of this one: shares the single-permission rule. -->
-    <InternalsVisibleTo Include="kdyf.Authorization.Administration.AspNetCore" />
+    <InternalsVisibleTo Include="kdyf.Authorization.Endpoints.Test" />
+    <!-- Composes administration on top of this one: shares the single-permission rule, the failure filter and the
+         response writer. -->
+    <InternalsVisibleTo Include="kdyf.Authorization.Administration" />
   </ItemGroup>
 
 </Project>

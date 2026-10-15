@@ -23,8 +23,8 @@
        role and the idempotent writes are what is tested — and the migration between the two gates. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\kdyf.Authorization.EntraId\kdyf.Authorization.EntraId.csproj" />
-    <ProjectReference Include="..\..\src\kdyf.Authorization.Administration.EntraId\kdyf.Authorization.Administration.EntraId.csproj" />
-    <ProjectReference Include="..\..\src\kdyf.Authorization.EntraId.Migration\kdyf.Authorization.EntraId.Migration.csproj" />
+    <ProjectReference Include="..\..\src\kdyf.Authorization.Administration\kdyf.Authorization.Administration.csproj" />
+    <ProjectReference Include="..\..\src\kdyf.Authorization.Migrations\kdyf.Authorization.Migrations.csproj" />
   </ItemGroup>
 
   <ItemGroup>

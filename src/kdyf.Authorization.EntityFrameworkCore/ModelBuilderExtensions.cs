@@ -1,5 +1,7 @@
 using kdyf.Authorization.EntityFrameworkCore.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace kdyf.Authorization.EntityFrameworkCore
 {
@@ -16,18 +18,41 @@ namespace kdyf.Authorization.EntityFrameworkCore
         public const string DefaultSchema = "auth";
 
         /// <summary>
+        /// The collation of role values and permission codes on SQL Server: binary, so a value is compared exactly —
+        /// as the code compares it (ordinal). With the database's usual case-insensitive collation, 'Portal.Admin' and
+        /// 'portal.admin' would be one key.
+        /// </summary>
+        public const string SqlServerKeyCollation = "Latin1_General_100_BIN2";
+
+        /// <summary>
+        /// The collation for the keys on this database: <see cref="SqlServerKeyCollation"/> on SQL Server, none elsewhere
+        /// (SQLite compares binary already, and does not know SQL Server's collations).
+        /// </summary>
+        public static string? KeyCollationFor(DatabaseFacade database)
+        {
+            ArgumentNullException.ThrowIfNull(database);
+            return database.ProviderName == "Microsoft.EntityFrameworkCore.SqlServer" ? SqlServerKeyCollation : null;
+        }
+
+        /// <summary>
         /// Configures the authorization entities. Call from <c>OnModelCreating</c>, after
         /// <c>base.OnModelCreating(...)</c>. A consumer that also administers access adds
         /// <c>ApplyAdministrationModel()</c> after this, with the same schema.
         /// </summary>
-        public static ModelBuilder ApplyAuthorizationModel(this ModelBuilder modelBuilder, string schema = DefaultSchema)
+        /// <param name="modelBuilder">The consumer's model.</param>
+        /// <param name="schema">The schema of the tables.</param>
+        /// <param name="keyCollation">
+        /// The collation of role values and permission codes: pass <see cref="KeyCollationFor"/>(<c>Database</c>), so the
+        /// tables EF creates compare keys exactly. Only the DDL EF generates is affected.
+        /// </param>
+        public static ModelBuilder ApplyAuthorizationModel(this ModelBuilder modelBuilder, string schema = DefaultSchema, string? keyCollation = null)
         {
             modelBuilder.Entity<Role>(e =>
             {
                 e.ToTable("Role", schema);
                 e.HasKey(x => x.RoleValue).HasName("PK_Role");
-                // Binary collation in the script: a role value is compared exactly, everywhere.
-                e.Property(x => x.RoleValue).HasColumnName("roleValue").HasMaxLength(100).IsUnicode(false);
+                // Binary collation on SQL Server: a role value is compared exactly, everywhere.
+                Key(e.Property(x => x.RoleValue).HasColumnName("roleValue").HasMaxLength(100).IsUnicode(false), keyCollation);
                 e.Property(x => x.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
                 e.Property(x => x.Description).HasColumnName("description").HasMaxLength(500);
                 e.Property(x => x.CreatedAt).HasColumnName("createdAt");
@@ -39,7 +64,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
             {
                 e.ToTable("Permission", schema);
                 e.HasKey(x => x.PermissionCode).HasName("PK_Permission");
-                e.Property(x => x.PermissionCode).HasColumnName("PermissionCode").HasMaxLength(50).IsUnicode(false);
+                Key(e.Property(x => x.PermissionCode).HasColumnName("PermissionCode").HasMaxLength(50).IsUnicode(false), keyCollation);
                 e.Property(x => x.Name).HasColumnName("name").HasMaxLength(100);
                 e.Property(x => x.Description).HasColumnName("description").HasMaxLength(200);
             });
@@ -48,8 +73,8 @@ namespace kdyf.Authorization.EntityFrameworkCore
             {
                 e.ToTable("RolePermission", schema);
                 e.HasKey(x => new { x.RoleValue, x.PermissionCode }).HasName("PK_RolePermission");
-                e.Property(x => x.RoleValue).HasColumnName("roleValue").HasMaxLength(100).IsUnicode(false);
-                e.Property(x => x.PermissionCode).HasColumnName("PermissionCode").HasMaxLength(50).IsUnicode(false);
+                Key(e.Property(x => x.RoleValue).HasColumnName("roleValue").HasMaxLength(100).IsUnicode(false), keyCollation);
+                Key(e.Property(x => x.PermissionCode).HasColumnName("PermissionCode").HasMaxLength(50).IsUnicode(false), keyCollation);
 
                 // What a role grants goes with the role.
                 e.HasOne<Role>().WithMany().HasForeignKey(x => x.RoleValue)
@@ -67,7 +92,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 e.ToTable("UserRole", schema);
                 e.HasKey(x => new { x.ObjectId, x.RoleValue }).HasName("PK_UserRole");
                 e.Property(x => x.ObjectId).HasColumnName("objectId").HasMaxLength(50).IsUnicode(false);
-                e.Property(x => x.RoleValue).HasColumnName("roleValue").HasMaxLength(100).IsUnicode(false);
+                Key(e.Property(x => x.RoleValue).HasColumnName("roleValue").HasMaxLength(100).IsUnicode(false), keyCollation);
 
                 // NOT cascade: a role somebody holds cannot be deleted. Taking it away from everyone first is a
                 // decision the lockout guard and the four-eyes rule get to look at, person by person.
@@ -105,6 +130,12 @@ namespace kdyf.Authorization.EntityFrameworkCore
             // ApplyAdministrationModel(), from kdyf.Authorization.Administration, applies it.
 
             return modelBuilder;
+        }
+
+        private static void Key(PropertyBuilder<string> property, string? collation)
+        {
+            if (collation is not null)
+                property.UseCollation(collation);
         }
     }
 }

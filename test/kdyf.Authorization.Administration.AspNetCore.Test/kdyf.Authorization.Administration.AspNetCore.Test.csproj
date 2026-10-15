@@ -14,6 +14,7 @@
     <PackageReference Include="MSTest.TestAdapter" />
     <PackageReference Include="MSTest.TestFramework" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,11 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\kdyf.Authorization.Administration.AspNetCore\kdyf.Authorization.Administration.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\kdyf.Authorization.Administration\kdyf.Authorization.Administration.csproj" />
     <!-- The providers a host plugs in; SQL Server only to build a context in memory, never to connect. -->
     <ProjectReference Include="..\..\src\kdyf.Authorization.EntityFrameworkCore\kdyf.Authorization.EntityFrameworkCore.csproj" />
     <ProjectReference Include="..\..\src\kdyf.Authorization.EntraId\kdyf.Authorization.EntraId.csproj" />
-    <ProjectReference Include="..\..\src\kdyf.Authorization.EntraId.Migration\kdyf.Authorization.EntraId.Migration.csproj" />
+    <ProjectReference Include="..\..\src\kdyf.Authorization.Migrations\kdyf.Authorization.Migrations.csproj" />
   </ItemGroup>
 
   <ItemGroup>

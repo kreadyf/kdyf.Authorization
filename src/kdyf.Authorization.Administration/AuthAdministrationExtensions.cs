@@ -19,7 +19,7 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <remarks>
         /// <para>
         /// Only services: no endpoints. The host exposes them with its own API;
-        /// <c>AddKdyfAuthorizationAdministration</c> (kdyf.Authorization.Administration.AspNetCore) calls this for a host.
+        /// <c>AddKdyfAuthorizationAdministration</c> (kdyf.Authorization.Administration) calls this for a host.
         /// </para>
         /// <para>
         /// Requires, already registered: <c>AddPermissionAuthorization().AddAssignedRoles(...)</c> (the role

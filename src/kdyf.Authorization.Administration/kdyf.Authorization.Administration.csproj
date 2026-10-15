@@ -1,23 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- ACCESS ADMINISTRATION: "who can do what?". Only used by whoever builds those screens.
+  <!-- ACCESS ADMINISTRATION: "who can do what?". Only a host that builds those screens references it; a host that only
+       authorizes stops at kdyf.Authorization.AspNetCore. Administration depends on authorization, never the other way
+       round: without it, it would not know who is asking, what they may hand out, what a role grants, or which cache
+       to invalidate.
 
-       Two halves: membership of the access group, an Entra security group changed through
-       IAccessGroupDirectory (implemented over Microsoft Graph by kdyf.Authorization.Administration.EntraId);
-       and the application's own roles — which exist, what each grants, who holds which — in the
-       tables of authorization (auth.Role, auth.RolePermission, auth.UserRole). Stored here: the audit
-       log (auth.AuditLog). People themselves are not stored anywhere: they live in Entra.
+       Two halves: who has access (the Entra access group, or the assignments to the Enterprise application, as
+       Directory:Gate says), changed through IAccessDirectory; and the application's own roles - which exist, what
+       each grants, who holds which - in the tables of authorization (auth.Role, auth.RolePermission, auth.UserRole).
+       Stored here: the audit log (auth.AuditLog). People themselves are not stored anywhere: they live in Entra.
 
-       The services (access, personal tokens, directory, audit), their contracts, the audit table and
-       its mapping (ApplyAdministrationModel), the validation envelope and the SMTP invitation notifier.
-
-       It depends on authorization and not the other way round: without it, it would not know who is
-       asking, what they may hand out, what a role grants, or which cache to invalidate.
-
-       NO endpoints: the host exposes them. kdyf.Authorization.Administration.AspNetCore
-       composes it for a host. -->
+       The root: the services (access, personal tokens, directory, audit, simulation), their contracts, the audit
+       table and its mapping (ApplyAdministrationModel), the validation envelope and the SMTP invitation notifier.
+       EntraId/: the access directory and the people search over Microsoft Graph, reusing the Graph plumbing of
+       kdyf.Authorization.EntraId.
+       AspNetCore/: the composition for a host (AddKdyfAuthorizationAdministration), on top of AddKdyfAuthorization and
+       from the same section, its database context and the policies under their fixed names (AccessPolicyNames).
+       Endpoints/: the OPTIONAL minimal APIs, which exist only when the host calls MapKdyfAuthorizationAdministration();
+       a host that wants its own leaves them unmapped and calls the services, with the actor from
+       IAdminActorAccessor. Their routes and DTOs are a public contract: changing a route or removing a field is a
+       major version. -->
   <PropertyGroup>
-    <Description>Administration services for kdyf.Authorization: people and their access, roles, personal access tokens, the directory, the audit log and user simulation.</Description>
+    <Description>Administration of kdyf.Authorization: people and their access (Entra group or Enterprise app assignments), roles, personal access tokens, the directory, the audit log and user simulation, its ASP.NET Core composition and optional minimal API endpoints.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
@@ -30,10 +34,14 @@
   <ItemGroup>
     <ProjectReference Include="..\kdyf.Authorization\kdyf.Authorization.csproj" />
     <ProjectReference Include="..\kdyf.Authorization.EntityFrameworkCore\kdyf.Authorization.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\kdyf.Authorization.EntraId\kdyf.Authorization.EntraId.csproj" />
+    <ProjectReference Include="..\kdyf.Authorization.AspNetCore\kdyf.Authorization.AspNetCore.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="kdyf.Authorization.Administration.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.Administration.AspNetCore.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.Endpoints.Test" />
   </ItemGroup>
 
 </Project>

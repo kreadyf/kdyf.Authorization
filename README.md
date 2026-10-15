@@ -22,15 +22,15 @@ All of them ship with the same version.
 | `kdyf.Authorization` | Core: permissions, policies, cache, the PAT scheme, simulation |
 | `kdyf.Authorization.EntityFrameworkCore` | The `auth.*` tables: roles, what they grant, who holds them, PATs, the permission catalog |
 | `kdyf.Authorization.EntraId` | Entra ID sign-in and the access gate, through Microsoft Graph |
-| `kdyf.Authorization.AspNetCore` | Composition for a host: `AddKdyfAuthorization`, `UseKdyfAuthorization` |
-| `kdyf.Authorization.AspNetCore.Endpoints` | Optional: `GET auth/me`, `GET auth/policies` |
-| `kdyf.Authorization.Administration` | Administration services: people, roles, PATs, directory, audit log, simulation |
-| `kdyf.Authorization.Administration.EntraId` | The directory and the access gate written through Graph |
-| `kdyf.Authorization.Administration.AspNetCore` | Composition of the administration: `AddKdyfAuthorizationAdministration` |
-| `kdyf.Authorization.Administration.Endpoints` | Optional: the administration and simulation endpoints |
-| `kdyf.Authorization.EntraId.Migration` | Temporary: moving the access gate from a group to app assignments |
+| `kdyf.Authorization.AspNetCore` | Composition for a host: `AddKdyfAuthorization`, `UseKdyfAuthorization`; optional `GET auth/me`, `GET auth/policies` |
+| `kdyf.Authorization.Administration` | Administration: people, roles, PATs, directory and access gate through Graph, audit log, simulation; `AddKdyfAuthorizationAdministration` and the optional endpoints |
+| `kdyf.Authorization.Migrations` | Temporary: moving the access gate from a group to app assignments |
 
-The endpoint packages expose nothing unless the host calls their `Map…()`. A host that prefers its own endpoints
+Every package targets .NET 8 and .NET 10. Namespaces did not change when the former `*.Endpoints`,
+`Administration.EntraId` and `Administration.AspNetCore` packages were merged, nor when `EntraId.Migration` became
+`Migrations`: a host only changes its package references.
+
+The endpoints expose nothing unless the host calls their `Map…()`. A host that prefers its own endpoints
 uses the administration services directly, and a host that keeps its own response envelope registers an
 `IKdyfAuthorizationResultWriter`.
 

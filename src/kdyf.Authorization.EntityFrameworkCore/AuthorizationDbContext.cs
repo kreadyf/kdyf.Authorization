@@ -23,7 +23,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
     /// once per process.
     /// </para>
     /// </remarks>
-    public sealed class AuthorizationDbContext : DbContext
+    public sealed class AuthorizationDbContext : DbContext, ISchemaQualifiedContext
     {
         private readonly string _schema;
 
@@ -33,10 +33,17 @@ namespace kdyf.Authorization.EntityFrameworkCore
             _schema = store.Value.Schema;
         }
 
+        /// <inheritdoc />
+        public string Schema => _schema;
+
+        /// <summary>One model per schema, not one per context type: see <see cref="SchemaModelCacheKeyFactory"/>.</summary>
+        protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
+            optionsBuilder.ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, SchemaModelCacheKeyFactory>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
-            modelBuilder.ApplyAuthorizationModel(_schema);
+            modelBuilder.ApplyAuthorizationModel(_schema, ModelBuilderExtensions.KeyCollationFor(Database));
         }
     }
 }

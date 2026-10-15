@@ -28,8 +28,8 @@ namespace kdyf.Authorization.Administration.Persistence
                 e.Property(x => x.OccurredAt).HasColumnName("occurredAt");
                 e.Property(x => x.ActorObjectId).HasColumnName("actorObjectId").HasMaxLength(50);
                 e.Property(x => x.ActorEmail).HasColumnName("actorEmail").HasMaxLength(256).IsRequired();
-                e.Property(x => x.Action).HasColumnName("action").HasMaxLength(40).IsRequired();
-                e.Property(x => x.TargetType).HasColumnName("targetType").HasMaxLength(20).IsRequired();
+                e.Property(x => x.Action).HasColumnName("action").HasMaxLength(40).IsUnicode(false).IsRequired();
+                e.Property(x => x.TargetType).HasColumnName("targetType").HasMaxLength(20).IsUnicode(false).IsRequired();
                 // An object id, a token id, or a role's value — up to 100.
                 e.Property(x => x.TargetId).HasColumnName("targetId").HasMaxLength(100);
                 e.Property(x => x.TargetLabel).HasColumnName("targetLabel").HasMaxLength(256).IsRequired();

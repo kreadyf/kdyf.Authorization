@@ -19,7 +19,7 @@ public class PermissionWildcardsTests
         "*", "Default",
         "my.*", "my.Timesheet", "my.Authenticator", "my.AccessTokens",
         "global.*", "global.Timesheet", "global.TimesheetWriter", "global.TimesheetAdmin",
-        "global.Authenticator", "global.UserAdministration", "global.UserSimulation",
+        "global.Vault", "global.UserAdministration", "global.UserSimulation",
         "fabrikam.*", "fabrikam.Controlling",
         "fabrikam.Invoicing.Invoices", "fabrikam.Invoicing.Catalogs", "fabrikam.Invoicing.Contingency",
         "contoso.*", "contoso.Accounting", "contoso.Invoicing",

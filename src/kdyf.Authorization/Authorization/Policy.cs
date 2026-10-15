@@ -25,9 +25,9 @@ namespace kdyf.Authorization.Authorization
     /// just one rule per permission.
     /// </para>
     /// <para>
-    /// This is what lets an ADDITIVE permission be stated honestly. "Read everyone's authenticators"
-    /// is not <c>global.Authenticator</c> on its own — it is that AND <c>my.Authenticator</c>, which
-    /// today is only true because one is checked by the route group and the other in the body of the
+    /// This is what lets an ADDITIVE permission be stated honestly. "Administer everyone's secrets"
+    /// is not <c>global.Vault</c> on its own — it is that AND <c>my.Vault</c>, which would otherwise
+    /// only be true because one is checked by the route group and the other in the body of the
     /// endpoint. As a policy it is one line, in one place.
     /// </para>
     /// <para>

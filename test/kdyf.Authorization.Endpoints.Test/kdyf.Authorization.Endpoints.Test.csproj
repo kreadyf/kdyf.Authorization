@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\kdyf.Authorization.Administration.Endpoints\kdyf.Authorization.Administration.Endpoints.csproj" />
+    <ProjectReference Include="..\..\src\kdyf.Authorization.Administration\kdyf.Authorization.Administration.csproj" />
   </ItemGroup>
 
   <ItemGroup>
