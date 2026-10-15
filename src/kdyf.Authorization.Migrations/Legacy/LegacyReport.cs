@@ -160,9 +160,9 @@ namespace kdyf.Authorization.Migrations.Legacy
                 var ownerRoles = heldBy[token.UserId].ToHashSet();
                 var limited = ownerRoles.Except(group.Select(tr => tr.RoleId)).Any();
                 if (limited)
-                    Add(token.IsActive ? IssueSeverity.Blocker : IssueSeverity.Warning, "token-limited-to-roles",
-                        $"token {token.Id} is limited to roles {Ids(group.Select(tr => tr.RoleId))} of its owner's {Ids(ownerRoles)}: "
-                        + "imported, it would hold all of them. Import it inactive, or approve the widening.");
+                    Add(IssueSeverity.Warning, "token-limited-to-roles",
+                        $"token {token.Id}{(token.IsActive ? " (active)" : "")} is limited to roles {Ids(group.Select(tr => tr.RoleId))} of its owner's {Ids(ownerRoles)}: "
+                        + "with all of them it would hold more, so it is imported inactive. Its owner creates a new one.");
             }
 
             if (data.Tokens.Count > 0)

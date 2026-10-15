@@ -1,6 +1,7 @@
 using System.Data.Common;
 using kdyf.Authorization.Abstractions;
 using kdyf.Authorization.Migrations.Schema;
+using kdyf.Authorization.Roles;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -27,7 +28,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// </summary>
     internal static class LegacyCommands
     {
-        public static bool Handles(string command) => command is "resolve" or "identities";
+        public static bool Handles(string command) => command is "resolve" or "identities" or "import";
 
         public static async Task<int> RunAsync(
             IReadOnlyList<string> args, string connectionString, string targetSchema, IServiceProvider? services, TextWriter output, CancellationToken cancellationToken)
@@ -44,6 +45,7 @@ namespace kdyf.Authorization.Migrations.Legacy
             }
 
             string? subcommand = null, file = null, approver = null;
+            var approvals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var incremental = false;
             var legacySchema = options.LegacySchema;
             for (var i = 1; i < args.Count; i++)
@@ -52,10 +54,11 @@ namespace kdyf.Authorization.Migrations.Legacy
                 {
                     case "--incremental": incremental = true; break;
                     case "--approver" when i + 1 < args.Count: approver = args[++i]; break;
+                    case "--approve" when i + 1 < args.Count: approvals.Add(args[++i]); break;
                     case "--legacy-schema" when i + 1 < args.Count: legacySchema = args[++i]; break;
                     case "--schema" when i + 1 < args.Count: targetSchema = args[++i]; break;
                     default:
-                        if (command == "identities" && subcommand is null) subcommand = args[i].ToLowerInvariant();
+                        if (command is "identities" or "import" && subcommand is null) subcommand = args[i].ToLowerInvariant();
                         else if (command == "identities" && file is null) file = args[i];
                         else
                         {
@@ -75,6 +78,40 @@ namespace kdyf.Authorization.Migrations.Legacy
                 {
                     case "resolve":
                         return await ResolveAsync(connection, connectionString, legacySchema, targetSchema, incremental, options, directory, newGate, output, cancellationToken);
+
+                    case "import" when subcommand is "plan" or "apply":
+                    {
+                        var declared = services!.GetService<DeclaredPermissions>();
+                        if (declared is null)
+                        {
+                            await output.WriteLineAsync("The host declares no permissions (AddAssignedRoles): the import copies only what the host declares.");
+                            return SchemaCommandLine.Usage;
+                        }
+                        var unknown = approvals.Where(a => a != LegacyImportApprovals.UnresolvedUsers).ToList();
+                        if (unknown.Count > 0)
+                        {
+                            await output.WriteLineAsync($"Unknown approval {string.Join(", ", unknown)}: {LegacyImportApprovals.UnresolvedUsers}.");
+                            return SchemaCommandLine.Usage;
+                        }
+                        var report = await LegacyImporter.RunAsync(connectionString, new LegacyImportRequest
+                        {
+                            LegacySchema = legacySchema,
+                            TargetSchema = targetSchema,
+                            Declared = declared.Permissions,
+                            HostSteps = services!.GetServices<ILegacyImportHostStep>().ToList(),
+                            MaxSnapshotAge = options.MaxSnapshotAge,
+                            Apply = subcommand == "apply",
+                            Settings = new LegacyImportSettings
+                            {
+                                AutoProvisionedRole = options.AutoProvisionedRole,
+                                BootstrapTokenHash = options.BootstrapTokenHash,
+                                RoleValueOverrides = options.RoleValueOverrides,
+                                Approvals = approvals,
+                            },
+                        }, cancellationToken);
+                        await output.WriteAsync(LegacyImporter.ToText(report));
+                        return report.HasBlockers ? SchemaCommandLine.NotDone : SchemaCommandLine.Ok;
+                    }
 
                     case "identities" when subcommand == "export" && file is not null:
                     {

@@ -3,7 +3,7 @@ using kdyf.Authorization.Migrations.Schema;
 
 namespace kdyf.Authorization.Migrations.Legacy
 {
-    public sealed record LegacyUser(int UserId, string Email, string? ObjectId, string? DisplayName, bool IsActive);
+    public sealed record LegacyUser(int UserId, string Email, string? ObjectId, string? DisplayName, bool IsActive, DateTime? CreatedAt = null);
 
     public sealed record LegacyUserRole(int UserId, int RoleId);
 
@@ -12,7 +12,8 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// <summary>A token limited to a role (shape B): <c>PersonalAccessTokenRole</c>.</summary>
     public sealed record LegacyTokenRole(int TokenId, int RoleId);
 
-    public sealed record LegacyToken(int Id, string Name, byte[] TokenHash, string? TokenPrefix, int UserId, bool IsActive, DateTime? ExpiresAt);
+    public sealed record LegacyToken(int Id, string Name, byte[] TokenHash, string? TokenPrefix, int UserId, bool IsActive, DateTime? ExpiresAt,
+        DateTime? CreatedAt = null, DateTime? LastUsedAt = null);
 
     /// <summary>A reference to the legacy tables from outside them: a foreign key, or a column named like a legacy id.</summary>
     public sealed record ExternalReference(string Table, string Column, string Kind);
@@ -45,12 +46,13 @@ namespace kdyf.Authorization.Migrations.Legacy
 
             var users = await ListAsync(connection,
                 $"SELECT [{Column("User", "UserId")}], [{Column("User", "email", "Email")}], [{Column("User", "objectId", "AzureObjectId", "ObjectId")}], "
-                + $"{Nullable(Optional("User", "displayName", "DisplayName"))}, {Nullable(Optional("User", "isActive", "IsActive"), "CAST(1 AS bit)")} FROM [{s}].[User]",
-                r => new LegacyUser(r.GetInt32(0), r.GetString(1), Text(r, 2), Text(r, 3), r.GetBoolean(4)), cancellationToken);
+                + $"{Nullable(Optional("User", "displayName", "DisplayName"))}, {Nullable(Optional("User", "isActive", "IsActive"), "CAST(1 AS bit)")}, "
+                + $"{Nullable(Optional("User", "createdAt", "CreatedAt"))} FROM [{s}].[User]",
+                r => new LegacyUser(r.GetInt32(0), r.GetString(1), Text(r, 2), Text(r, 3), r.GetBoolean(4), r.IsDBNull(5) ? null : r.GetDateTime(5)), cancellationToken);
 
             var roles = await ListAsync(connection,
-                $"SELECT [{Column("Role", "RoleId")}], [{Column("Role", "name", "Name")}] FROM [{s}].[Role]",
-                r => new LegacyRole(r.GetInt32(0), r.GetString(1)), cancellationToken);
+                $"SELECT [{Column("Role", "RoleId")}], [{Column("Role", "name", "Name")}], {Nullable(Optional("Role", "description", "Description"))} FROM [{s}].[Role]",
+                r => new LegacyRole(r.GetInt32(0), r.GetString(1), Text(r, 2)), cancellationToken);
 
             var grants = await ListAsync(connection,
                 $"SELECT [{Column("RolePermission", "RoleId")}], [{Column("RolePermission", "PermissionCode", "Code")}] FROM [{s}].[RolePermission]",
@@ -70,9 +72,10 @@ namespace kdyf.Authorization.Migrations.Legacy
                     $"SELECT [{Column("PersonalAccessToken", "PersonalAccessTokenId")}], [{Column("PersonalAccessToken", "name", "Name")}], "
                     + $"[{Column("PersonalAccessToken", "tokenHash", "TokenHash")}], {Nullable(Optional("PersonalAccessToken", "tokenPrefix", "TokenPrefix"))}, "
                     + $"[{Column("PersonalAccessToken", "userId", "UserId")}], [{Column("PersonalAccessToken", "isActive", "IsActive")}], "
-                    + $"{Nullable(Optional("PersonalAccessToken", "expiresAt", "ExpiresAt"))} FROM [{s}].[PersonalAccessToken]",
+                    + $"{Nullable(Optional("PersonalAccessToken", "expiresAt", "ExpiresAt"))}, {Nullable(Optional("PersonalAccessToken", "createdAt", "CreatedAt"))}, "
+                    + $"{Nullable(Optional("PersonalAccessToken", "lastUsedAt", "LastUsedAt"))} FROM [{s}].[PersonalAccessToken]",
                     r => new LegacyToken(r.GetInt32(0), r.GetString(1), (byte[])r.GetValue(2), Text(r, 3), r.GetInt32(4), r.GetBoolean(5),
-                        r.IsDBNull(6) ? null : r.GetDateTime(6)), cancellationToken);
+                        r.IsDBNull(6) ? null : r.GetDateTime(6), r.IsDBNull(7) ? null : r.GetDateTime(7), r.IsDBNull(8) ? null : r.GetDateTime(8)), cancellationToken);
 
             var tokenRoles = snapshot.Table("PersonalAccessTokenRole") is null
                 ? new List<LegacyTokenRole>()

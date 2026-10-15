@@ -135,9 +135,9 @@ public sealed class LegacyReportTests
         Assert.IsFalse(finding.Message.Contains("Florian"), "a token's name can be a person's");
     }
 
-    /// <summary>A token limited to one of its owner's roles would hold all of them: a gain unless inactive or approved.</summary>
+    /// <summary>A token limited to one of its owner's roles would hold all of them: it is imported inactive.</summary>
     [TestMethod]
-    public void A_token_limited_to_some_roles_blocks_when_active()
+    public void A_token_limited_to_some_roles_is_reported_and_marked_active_when_it_is()
     {
         var data = Data(
             roles: new[] { new LegacyRole(1, "Reader"), new LegacyRole(2, "Writer") },
@@ -148,8 +148,9 @@ public sealed class LegacyReportTests
 
         var findings = LegacyReport.Build(data).Findings.Where(f => f.Code == "token-limited-to-roles").ToList();
 
-        Assert.AreEqual(IssueSeverity.Blocker, findings.Single(f => f.Message.Contains("token 5")).Severity);
-        Assert.AreEqual(IssueSeverity.Warning, findings.Single(f => f.Message.Contains("token 6")).Severity);
+        StringAssert.Contains(findings.Single(f => f.Message.Contains("token 5")).Message, "token 5 (active)");
+        Assert.IsFalse(findings.Single(f => f.Message.Contains("token 6")).Message.Contains("(active)"));
+        Assert.IsTrue(findings.All(f => f.Severity == IssueSeverity.Warning));
     }
 
     [TestMethod]

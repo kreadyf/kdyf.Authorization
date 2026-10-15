@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary>A legacy role: its numeric id and its name.</summary>
-    public sealed record LegacyRole(int RoleId, string Name);
+    public sealed record LegacyRole(int RoleId, string Name, string? Description = null);
 
     /// <summary>
     /// Gives each legacy role (numeric <c>RoleId</c>) the <c>roleValue</c> it has in the new schema: deterministic, stable

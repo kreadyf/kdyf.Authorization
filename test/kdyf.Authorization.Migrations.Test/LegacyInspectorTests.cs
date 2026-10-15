@@ -25,14 +25,16 @@ public sealed class LegacyInspectorTests
         Assert.IsNull(report);
     }
 
+    /// <summary>A token limited to some of its owner's roles would hold all of them: it is reported, and imported inactive.</summary>
     [TestMethod]
-    public async Task Shape_B_limits_tokens_to_roles_and_a_limited_active_token_blocks()
+    public async Task Shape_B_limits_tokens_to_roles_and_a_limited_token_is_imported_inactive()
     {
         var (shape, report) = await InspectAsync(LegacyFixtures.ShapeB, LegacyFixtures.Data, LegacyFixtures.TokenData, LegacyFixtures.TokenRoleData);
 
         Assert.AreEqual("B", shape.Label);
-        Assert.IsTrue(report!.HasBlockers);
-        StringAssert.Contains(report.Findings.Single(f => f.Code == "token-limited-to-roles").Message, "token 1");
+        var finding = report!.Findings.Single(f => f.Code == "token-limited-to-roles");
+        StringAssert.Contains(finding.Message, "token 1");
+        StringAssert.Contains(finding.Message, "imported inactive");
     }
 
     [TestMethod]
@@ -92,8 +94,9 @@ public sealed class LegacyInspectorTests
         await using var db = await TestDatabase.CreateAsync();
         await db.ExecuteAsync(LegacyFixtures.ShapeB);
         await db.ExecuteAsync(LegacyFixtures.Data);
-        await db.ExecuteAsync(LegacyFixtures.TokenData);
-        await db.ExecuteAsync(LegacyFixtures.TokenRoleData);
+        // A foreign key from another schema to the legacy ids: only a host step can carry it over.
+        await db.ExecuteAsync("CREATE SCHEMA vault;");
+        await db.ExecuteAsync("CREATE TABLE vault.EntryAccess (EntryId INT NOT NULL, RoleId INT NOT NULL CONSTRAINT FK_EntryAccess_Role REFERENCES auth.Role(RoleId));");
         var output = new StringWriter();
 
         var code = await SchemaCommandLine.RunAsync(new[] { "legacy-report" }, db.ConnectionString, "authz", output);

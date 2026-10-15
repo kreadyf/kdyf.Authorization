@@ -53,6 +53,15 @@ namespace kdyf.Authorization.Migrations.Legacy
 
         /// <summary>How old the identities and the gate snapshot may be when the import applies them (default 12 h).</summary>
         public TimeSpan MaxSnapshotAge { get; set; } = TimeSpan.FromHours(12);
+
+        /// <summary>kdyf.admin's role given to everybody who signed in (<c>Default</c>): not copied.</summary>
+        public string? AutoProvisionedRole { get; set; }
+
+        /// <summary>The hash (hex) of a bootstrap token published in a repository's history: copied inactive.</summary>
+        public string? BootstrapTokenHash { get; set; }
+
+        /// <summary>Role values chosen by hand (RoleId → roleValue), frozen before the first copy.</summary>
+        public Dictionary<int, string> RoleValueOverrides { get; set; } = new();
     }
 
     /// <summary>How a legacy user was matched to a person in the directory.</summary>
