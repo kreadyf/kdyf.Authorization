@@ -320,6 +320,129 @@ public sealed class LegacyImportTests
         Assert.AreEqual("carlos", await db.ScalarAsync<string>("SELECT TOP 1 ApprovedBy FROM authz.MigrationException"));
     }
 
+    // ── The cutover and after ────────────────────────────────────────────────
+
+    /// <summary>Imported, the reductions accepted, the go/no-go green, and cut over.</summary>
+    private static async Task<TestDatabase> CutOverAsync()
+    {
+        var db = await PrepareAsync();
+        Assert.IsTrue((await ImportAsync(db)).Applied);
+        var dryRun = await ImportAsync(db, apply: false);
+        await LegacyCutover.AcceptReductionsAsync(db.ConnectionString, Target, dryRun.Invariant!, "carlos", default);
+        var checks = await LegacyCutover.CheckAsync(db.ConnectionString, Target, dryRun, default);
+        Assert.IsTrue(checks.All(c => c.Passed), string.Join("\n", checks));
+        await LegacyCutover.CutoverAsync(db.ConnectionString, Target, "carlos", TimeSpan.FromHours(48), default);
+        return db;
+    }
+
+    [TestMethod]
+    public async Task The_go_no_go_wants_the_reductions_accepted_and_the_copy_in_sync()
+    {
+        await using var db = await PrepareAsync();
+        await ImportAsync(db);
+
+        var dryRun = await ImportAsync(db, apply: false);
+        var notAccepted = await LegacyCutover.CheckAsync(db.ConnectionString, Target, dryRun, default);
+        await LegacyCutover.AcceptReductionsAsync(db.ConnectionString, Target, dryRun.Invariant!, "carlos", default);
+        await db.ExecuteAsync("DELETE FROM auth.UserRole WHERE UserId = 1 AND RoleId = 2;");
+        var changedSince = await LegacyCutover.CheckAsync(db.ConnectionString, Target, await ImportAsync(db, apply: false), default);
+
+        Assert.IsFalse(notAccepted.Single(c => c.Name == "reductions accepted").Passed);
+        Assert.IsTrue(notAccepted.Single(c => c.Name == "in sync with the legacy schema").Passed);
+        Assert.IsFalse(changedSince.Single(c => c.Name == "in sync with the legacy schema").Passed, "a change since the last apply");
+    }
+
+    /// <summary>A different list of reductions needs a new acceptance: the one given was for another list.</summary>
+    [TestMethod]
+    public async Task An_acceptance_holds_for_the_list_it_accepted_only()
+    {
+        await using var db = await PrepareAsync();
+        await ImportAsync(db);
+        await LegacyCutover.AcceptReductionsAsync(db.ConnectionString, Target, (await ImportAsync(db, apply: false)).Invariant!, "carlos", default);
+
+        await db.ExecuteAsync("DELETE FROM auth.RolePermission WHERE RoleId = 2 AND PermissionCode = 'Orders.Read';");
+        await ImportAsync(db);
+        var checks = await LegacyCutover.CheckAsync(db.ConnectionString, Target, await ImportAsync(db, apply: false), default);
+
+        Assert.IsFalse(checks.Single(c => c.Name == "reductions accepted").Passed);
+    }
+
+    [TestMethod]
+    public async Task After_the_cutover_the_import_never_runs_again()
+    {
+        await using var db = await CutOverAsync();
+
+        var report = await ImportAsync(db);
+
+        Assert.IsTrue(report.Issues.Any(i => i.Code == "cutover-completed"));
+    }
+
+    /// <summary>
+    /// The rollback window: what an administrator revoked in the new application goes back to the legacy one, so going back
+    /// does not undo it. What was granted does not, and the tokens the import copied inactive on purpose stay as they were.
+    /// </summary>
+    [TestMethod]
+    public async Task Rollback_sync_takes_back_the_revocations_and_nothing_else()
+    {
+        await using var db = await CutOverAsync();
+        await db.ExecuteAsync($"""
+            DELETE FROM authz.UserRole WHERE objectId = '{Admin}' AND roleValue = 'super-admin';            -- a role taken away
+            UPDATE authz.UserProfile SET isActive = 0 WHERE objectId = '{Nothing}';                         -- somebody suspended
+            DELETE FROM authz.RolePermission WHERE roleValue = 'order-reader' AND PermissionCode = 'Orders.Read'; -- a permission taken away
+            INSERT INTO authz.UserRole (objectId, roleValue) VALUES ('{Reader}', 'super-admin');               -- a grant: never taken back
+            UPDATE authz.PersonalAccessToken SET isActive = 0 WHERE PersonalAccessTokenId = 1;
+            INSERT INTO authz.AuditLog (actorObjectId, actorEmail, action, targetType, targetId, targetLabel) VALUES ('{Admin}', 'admin@test', 'pat.deactivated', 'pat', '1', 'limited');
+            """);
+
+        var plan = await LegacyCutover.RollbackSyncAsync(db.ConnectionString, "auth", Target, apply: false, default);
+        Assert.AreEqual(1, plan.Single(c => c.Table == "UserRole").Count);
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.UserRole WHERE UserId = 1 AND RoleId = 1"), "the dry run changed nothing");
+
+        var applied = await LegacyCutover.RollbackSyncAsync(db.ConnectionString, "auth", Target, apply: true, default);
+
+        CollectionAssert.AreEqual(new[] { 1, 1, 1, 1 }, applied.Select(c => c.Count).ToArray(), string.Join(" ", applied));
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.UserRole WHERE UserId = 1 AND RoleId = 1"));
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.UserRole WHERE UserId = 2 AND RoleId = 1"), "the grant is not taken back");
+        Assert.IsFalse(await db.ScalarAsync<bool>("SELECT isActive FROM auth.[User] WHERE UserId = 4"));
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.RolePermission WHERE RoleId = 2 AND PermissionCode = 'Orders.Read'"));
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.RolePermission WHERE RoleId = 2 AND PermissionCode = 'Orders.Write'"), "undeclared: never copied, never taken back");
+        Assert.IsFalse(await db.ScalarAsync<bool>("SELECT isActive FROM auth.PersonalAccessToken WHERE name = 'limited'"));
+        Assert.IsTrue(await db.ScalarAsync<bool>("SELECT isActive FROM auth.PersonalAccessToken WHERE name = 'service'"), "copied inactive on purpose: left as it is");
+
+        var again = await LegacyCutover.RollbackSyncAsync(db.ConnectionString, "auth", Target, apply: true, default);
+        Assert.IsTrue(again.All(c => c.Count == 0), "repeatable");
+    }
+
+    [TestMethod]
+    public async Task Rollback_sync_before_the_cutover_is_refused()
+    {
+        await using var db = await PrepareAsync();
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.RollbackSyncAsync(db.ConnectionString, "auth", Target, true, default));
+    }
+
+    [TestMethod]
+    public async Task The_contraction_waits_for_the_window_renames_and_only_then_drops()
+    {
+        await using var db = await CutOverAsync();
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.ContractAsync(db.ConnectionString, "auth", Target, false, DateTime.UtcNow, default));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.ContractAsync(db.ConnectionString, "auth", Target, true, DateTime.UtcNow.AddDays(3), default));
+
+        var later = DateTime.UtcNow.AddDays(3);
+        var renamed = await LegacyCutover.ContractAsync(db.ConnectionString, "auth", Target, false, later, default);
+        var schema = $"auth_legacy_{later:yyyyMMdd}";
+
+        StringAssert.Contains(renamed, schema);
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('auth')"));
+        Assert.AreEqual(7, await db.ScalarAsync<int>($"SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('{schema}')"));
+        Assert.AreEqual(4, await db.ScalarAsync<int>($"SELECT COUNT(*) FROM [{schema}].[User]"), "the data moved with the tables");
+
+        await LegacyCutover.ContractAsync(db.ConnectionString, schema, Target, true, later, default);
+        Assert.IsNull(await db.ScalarAsync<object>($"SELECT SCHEMA_ID('{schema}')"));
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"), "the target is untouched");
+    }
+
     private sealed class NoDirectory : ILegacyDirectory, IMembershipSource
     {
         public Task<DirectoryPerson?> GetAsync(string objectId, CancellationToken cancellationToken = default) => Task.FromResult<DirectoryPerson?>(null);

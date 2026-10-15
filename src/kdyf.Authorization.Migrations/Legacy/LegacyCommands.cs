@@ -31,12 +31,15 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// </summary>
     internal static class LegacyCommands
     {
-        public static bool Handles(string command) => command is "resolve" or "identities" or "import" or "exceptions";
+        public static bool Handles(string command) => command is "resolve" or "identities" or "import" or "exceptions" or "rollback-sync" or "contract";
 
         public static async Task<int> RunAsync(
             IReadOnlyList<string> args, string connectionString, string targetSchema, IServiceProvider? services, TextWriter output, CancellationToken cancellationToken)
         {
             var command = args[0].ToLowerInvariant();
+            if (command is "rollback-sync" or "contract")
+                return await DatabaseOnlyAsync(command, args, connectionString, targetSchema, services, output, cancellationToken);
+
             var options = services?.GetService<IOptions<LegacyImportOptions>>()?.Value;
             var directory = services?.GetService<ILegacyDirectory>();
             var newGate = services?.GetService<IMembershipSource>();
@@ -49,6 +52,7 @@ namespace kdyf.Authorization.Migrations.Legacy
 
             string? subcommand = null, file = null, approver = null;
             var approvals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var window = TimeSpan.FromHours(48);
             var incremental = false;
             var legacySchema = options.LegacySchema;
             for (var i = 1; i < args.Count; i++)
@@ -58,6 +62,7 @@ namespace kdyf.Authorization.Migrations.Legacy
                     case "--incremental": incremental = true; break;
                     case "--approver" when i + 1 < args.Count: approver = args[++i]; break;
                     case "--approve" when i + 1 < args.Count: approvals.Add(args[++i]); break;
+                    case "--rollback-window" when i + 1 < args.Count && int.TryParse(args[i + 1].TrimEnd('h'), out var hours): window = TimeSpan.FromHours(hours); i++; break;
                     case "--legacy-schema" when i + 1 < args.Count: legacySchema = args[++i]; break;
                     case "--schema" when i + 1 < args.Count: targetSchema = args[++i]; break;
                     default:
@@ -82,7 +87,7 @@ namespace kdyf.Authorization.Migrations.Legacy
                     case "resolve":
                         return await ResolveAsync(connection, connectionString, legacySchema, targetSchema, incremental, options, directory, newGate, output, cancellationToken);
 
-                    case "import" when subcommand is "plan" or "apply":
+                    case "import" when subcommand is "plan" or "apply" or "reductions-accept" or "cutover":
                     {
                         var declared = services!.GetService<DeclaredPermissions>();
                         if (declared is null)
@@ -121,8 +126,46 @@ namespace kdyf.Authorization.Migrations.Legacy
                                 Approvals = approvals,
                             },
                         }, cancellationToken);
-                        await output.WriteAsync(LegacyImporter.ToText(report));
-                        return report.HasBlockers ? SchemaCommandLine.NotDone : SchemaCommandLine.Ok;
+                        if (subcommand is "plan" or "apply")
+                        {
+                            await output.WriteAsync(LegacyImporter.ToText(report));
+                            return report.HasBlockers ? SchemaCommandLine.NotDone : SchemaCommandLine.Ok;
+                        }
+
+                        if (string.IsNullOrWhiteSpace(approver))
+                        {
+                            await output.WriteLineAsync("Name who approves: --approver <name>.");
+                            return SchemaCommandLine.Usage;
+                        }
+
+                        if (subcommand == "reductions-accept")
+                        {
+                            if (report.HasBlockers || report.Invariant is null)
+                            {
+                                await output.WriteAsync(LegacyImporter.ToText(report));
+                                await output.WriteLineAsync("Blockers stand: there is nothing to accept yet.");
+                                return SchemaCommandLine.NotDone;
+                            }
+                            foreach (var (user, codes) in report.Invariant.Reductions)
+                                await output.WriteLineAsync($"  user {user} loses: {string.Join(", ", codes)}");
+                            var fingerprint = await LegacyCutover.AcceptReductionsAsync(connectionString, targetSchema, report.Invariant, approver, cancellationToken);
+                            await output.WriteLineAsync($"Accepted by {approver}: {report.Invariant.Reductions.Count} user(s), list {fingerprint}. A different list needs a new acceptance.");
+                            return SchemaCommandLine.Ok;
+                        }
+
+                        // The cutover: the automatic go/no-go, then the marker and the rollback window.
+                        var checks = await LegacyCutover.CheckAsync(connectionString, targetSchema, report, cancellationToken);
+                        foreach (var check in checks)
+                            await output.WriteLineAsync(check.ToString());
+                        if (checks.Any(c => !c.Passed))
+                        {
+                            await output.WriteLineAsync("No go: nothing was changed.");
+                            return SchemaCommandLine.NotDone;
+                        }
+                        await LegacyCutover.CutoverAsync(connectionString, targetSchema, approver, window, cancellationToken);
+                        await output.WriteLineAsync($"Cut over by {approver}. Rollback window: {window.TotalHours:0} h; keep the administration frozen except revocations, "
+                                                    + "and run 'rollback-sync apply' before going back.");
+                        return SchemaCommandLine.Ok;
                     }
 
                     case "exceptions" when subcommand == "import" && file is not null:
@@ -186,6 +229,64 @@ namespace kdyf.Authorization.Migrations.Legacy
                 }
             }
             catch (Exception ex) when (ex is DbException or InvalidOperationException or FormatException or IOException or EntraId.GraphException)
+            {
+                await output.WriteLineAsync($"{command} failed: {ex.Message}");
+                return SchemaCommandLine.NotDone;
+            }
+        }
+
+        /// <summary>The commands that only need the database: rollback-sync and the contraction.</summary>
+        private static async Task<int> DatabaseOnlyAsync(
+            string command, IReadOnlyList<string> args, string connectionString, string targetSchema, IServiceProvider? services, TextWriter output,
+            CancellationToken cancellationToken)
+        {
+            var legacySchema = services?.GetService<IOptions<LegacyImportOptions>>()?.Value.LegacySchema ?? "auth";
+            string? subcommand = null;
+            var confirmed = false;
+            for (var i = 1; i < args.Count; i++)
+            {
+                switch (args[i])
+                {
+                    case "--legacy-schema" when i + 1 < args.Count: legacySchema = args[++i]; break;
+                    case "--schema" when i + 1 < args.Count: targetSchema = args[++i]; break;
+                    case "--confirm": confirmed = true; break;
+                    default:
+                        if (subcommand is null) subcommand = args[i].ToLowerInvariant();
+                        else
+                        {
+                            await output.WriteLineAsync($"Unknown argument '{args[i]}'.");
+                            return SchemaCommandLine.Usage;
+                        }
+                        break;
+                }
+            }
+
+            try
+            {
+                if (command == "rollback-sync" && subcommand is "plan" or "apply")
+                {
+                    var changes = await LegacyCutover.RollbackSyncAsync(connectionString, legacySchema, targetSchema, subcommand == "apply", cancellationToken);
+                    foreach (var change in changes)
+                        await output.WriteLineAsync($"  {change.Table,-20} {change.Count,5}  {change.What}");
+                    await output.WriteLineAsync(subcommand == "apply" ? $"Taken back to [{legacySchema}]." : "Dry run: nothing was changed.");
+                    return SchemaCommandLine.Ok;
+                }
+
+                if (command == "contract" && subcommand is "rename" or "drop")
+                {
+                    if (!confirmed)
+                    {
+                        await output.WriteLineAsync($"The contraction {(subcommand == "drop" ? "drops" : "renames")} [{legacySchema}]: confirm it with --confirm.");
+                        return SchemaCommandLine.Usage;
+                    }
+                    await output.WriteLineAsync(await LegacyCutover.ContractAsync(connectionString, legacySchema, targetSchema, subcommand == "drop", DateTime.UtcNow, cancellationToken));
+                    return SchemaCommandLine.Ok;
+                }
+
+                await output.WriteLineAsync("rollback-sync plan|apply | contract rename|drop --confirm");
+                return SchemaCommandLine.Usage;
+            }
+            catch (Exception ex) when (ex is DbException or InvalidOperationException)
             {
                 await output.WriteLineAsync($"{command} failed: {ex.Message}");
                 return SchemaCommandLine.NotDone;

@@ -46,6 +46,14 @@ namespace kdyf.Authorization.Migrations.Schema
               import plan | apply [--approve unresolved-users]
                                  (host) Copy the legacy schema into this one, reconciled and verified; plan is a dry run.
                                  Nobody may gain: every gain is refused unless approved in the exceptions.
+              import reductions-accept --approver <name>
+                                 (host) Accept what each person loses, as listed now.
+              import cutover --approver <name> [--rollback-window 48h]
+                                 (host) The automatic go/no-go, then CutoverCompleted and the rollback window.
+              rollback-sync plan | apply
+                                 Take the revocations made since the cutover back to the legacy schema. Never grants.
+              contract rename | drop --confirm
+                                 After the window: the legacy schema renamed to <schema>_legacy_<date>, later dropped.
               exceptions import <file> --approver <name>
                                  (host) The approved exceptions to the invariant (JSON); the file replaces the previous set.
 
