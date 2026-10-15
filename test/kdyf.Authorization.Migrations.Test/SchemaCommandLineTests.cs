@@ -1,3 +1,4 @@
+using kdyf.Authorization.Abstractions;
 using kdyf.Authorization.EntityFrameworkCore;
 using kdyf.Authorization.Migrations.Schema;
 using Microsoft.Extensions.DependencyInjection;
@@ -134,5 +135,38 @@ public sealed class SchemaCommandLineTests
             Environment.ExitCode = exitCode;
         }
         Assert.IsTrue((await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = "authz" }).VerifyAsync()).Succeeded);
+    }
+
+    private sealed class ScopedGate : IMembershipSource
+    {
+        public Task<Membership?> GetMembershipAsync(string subjectId, CancellationToken cancellationToken = default) => Task.FromResult<Membership?>(null);
+        public Task<DirectoryIdentity?> FindByEmailAsync(string email, CancellationToken cancellationToken = default) => Task.FromResult<DirectoryIdentity?>(null);
+    }
+
+    /// <summary>
+    /// The legacy commands resolve the host's scoped services (the access gate is scoped, as in UseEntraId). A host that
+    /// validates scopes — any host in Development — refused them from the root provider: the command runs in a scope.
+    /// </summary>
+    [TestMethod]
+    public async Task A_host_that_validates_scopes_runs_the_legacy_commands()
+    {
+        using var host = Host.CreateDefaultBuilder()
+            .UseDefaultServiceProvider(options => { options.ValidateScopes = true; options.ValidateOnBuild = true; })
+            .ConfigureServices(services => services
+                .AddSingleton(Options.Create(new AuthorizationStoreOptions { ConnectionString = "Server=unused", Schema = "authz" }))
+                .AddScoped<IMembershipSource, ScopedGate>())
+            .Build();
+
+        var exitCode = Environment.ExitCode;
+        try
+        {
+            // Without the legacy import registered it answers with the usage; what matters is that it answers.
+            Assert.IsTrue(await host.RunKdyfAuthCommandAsync(new[] { "kdyf-auth", "resolve" }));
+            Assert.AreEqual(SchemaCommandLine.Usage, Environment.ExitCode);
+        }
+        finally
+        {
+            Environment.ExitCode = exitCode;
+        }
     }
 }

@@ -40,7 +40,11 @@ namespace kdyf.Authorization.Migrations.Schema
                 return true;
             }
 
-            Environment.ExitCode = await SchemaCommandLine.RunAsync(args.Skip(1).ToList(), connectionString, store.Schema, Console.Out, host.Services, cancellationToken);
+            // A scope of its own, as a request has: the legacy commands use the host's scoped services (the access gate,
+            // the directory, the DbContexts). Resolved from the root provider they would live as long as the process,
+            // and a host that validates scopes (Development) refuses them outright.
+            await using var scope = host.Services.CreateAsyncScope();
+            Environment.ExitCode = await SchemaCommandLine.RunAsync(args.Skip(1).ToList(), connectionString, store.Schema, Console.Out, scope.ServiceProvider, cancellationToken);
             return true;
         }
     }
