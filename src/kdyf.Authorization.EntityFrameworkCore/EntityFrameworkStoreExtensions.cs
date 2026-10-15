@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using kdyf.Authorization.Hosting;
@@ -91,6 +92,9 @@ namespace kdyf.Authorization.EntityFrameworkCore
                     foreach (var assembly in declarations.Skip(1))
                         sync.Assemblies.Add(assembly);
                 });
+
+                // Before the catalog sync, which writes to the tables: the schema is the version these packages expect.
+                services.Insert(0, ServiceDescriptor.Singleton<IHostedService, SchemaVersionCheck<AuthorizationDbContext>>());
             });
 
             return builder;

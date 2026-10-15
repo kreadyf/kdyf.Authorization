@@ -371,9 +371,11 @@ public sealed class AddKdyfAuthorizationTests
         })
             Assert.IsTrue(services.Any(d => d.ServiceType == type), $"{type.Name} is not registered.");
 
-        // The catalog sync runs first among the hosted services, so nothing reads auth.Permission before it is written.
-        Assert.AreEqual(typeof(PermissionCatalogSynchronizer<AuthorizationDbContext>),
-            services.First(d => d.ServiceType == typeof(IHostedService)).ImplementationType);
+        // First among the hosted services: the check of the schema's version, then the catalog sync, so nothing reads
+        // auth.Permission before it is written, and nothing writes to a schema of another version.
+        var hosted = services.Where(d => d.ServiceType == typeof(IHostedService)).Select(d => d.ImplementationType).Take(2).ToArray();
+        Assert.AreEqual("SchemaVersionCheck`1", hosted[0]!.Name);
+        Assert.AreEqual(typeof(PermissionCatalogSynchronizer<AuthorizationDbContext>), hosted[1]);
     }
 
     /// <summary>

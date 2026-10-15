@@ -85,6 +85,9 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 // the grants of an undeclared code before the code itself.
                 e.HasOne<Permission>().WithMany().HasForeignKey(x => x.PermissionCode)
                     .HasConstraintName("FK_RolePermission_Permission").OnDelete(DeleteBehavior.Restrict);
+
+                // Behind that foreign key: deleting a catalog row checks that no role grants it (schema version 2).
+                e.HasIndex(x => x.PermissionCode).HasDatabaseName("IX_RolePermission_PermissionCode");
             });
 
             modelBuilder.Entity<UserRole>(e =>

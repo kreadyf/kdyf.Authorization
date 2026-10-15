@@ -11,7 +11,8 @@
        (kdyf.Authorization.EntraId).
 
        The audit table is NOT here either: it belongs to administration (kdyf.Authorization.Administration).
-       EF Core does not create these tables: the host's SQL script does. -->
+       EF Core does not create these tables: the versioned schema of kdyf.Authorization.Migrations does, and the host
+       checks its version at startup (SchemaVersionCheck). -->
   <PropertyGroup>
     <Description>EF Core store for kdyf.Authorization: roles, what they grant, who holds them, personal access tokens and the permission catalog in the auth.* tables, on the database provider the host chooses.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -28,6 +29,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="kdyf.Authorization.EntityFrameworkCore.Test" />
+    <!-- The startup check of the schema version, against a real SQL Server. -->
+    <InternalsVisibleTo Include="kdyf.Authorization.Migrations.Test" />
   </ItemGroup>
 
 </Project>

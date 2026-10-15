@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The kdyf-auth dotnet tool: the schema commands without a host, given a connection string. For installing from
+       empty, detecting and adopting; the legacy import needs the host (its declared permissions), so it runs as
+       '<host> kdyf-auth ...' instead. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>kdyf-auth</ToolCommandName>
+    <Description>The kdyf-auth dotnet tool: detects, plans, scripts, applies and verifies the versioned schema of kdyf.Authorization on SQL Server.</Description>
+    <PackageTags>$(PackageTags);dotnet-tool;migrations</PackageTags>
+  </PropertyGroup>
+
+  <!-- The ASP.NET Core framework, like the packages it runs: without it, their dependencies would resolve framework
+       assemblies as (older, vulnerable) NuGet packages. The machine running the tool needs the ASP.NET Core runtime. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\kdyf.Authorization.Migrations\kdyf.Authorization.Migrations.csproj" />
+  </ItemGroup>
+
+</Project>

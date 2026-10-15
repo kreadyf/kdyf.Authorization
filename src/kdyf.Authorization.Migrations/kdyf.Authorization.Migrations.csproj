@@ -1,19 +1,28 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- THE MIGRATION of the access gate, from the Entra access group to assignments to the Enterprise application
-       (Directory:Gate = Migrating). Only while it lasts, and only in the host that administers access:
+  <!-- MIGRATIONS, of the schema and of the access gate. Only in the host or the tool that migrates.
+
+       Schema/ (namespace kdyf.Authorization.Migrations.Schema): the versioned schema, on SQL Server. A detector that reads
+       the catalog (sys.*), ordered steps verified against a manifest before their version is recorded, one run at a time
+       (sp_getapplock), the history in the schema itself, and the kdyf-auth commands (detect, plan, script, apply, adopt,
+       verify, cutover) for a host (RunKdyfAuthCommandAsync) and for the dotnet tool.
+
+       The access gate (namespace kdyf.Authorization.EntraId.Migration, as before the package was renamed), from the
+       Entra access group to assignments to the Enterprise application (Directory:Gate = Migrating), while it lasts:
        - a background sync that keeps the assignments of the Access app role equal to the group, audited;
        - the access directory that writes every change of the administration to the group AND to the assignments.
-       Removed once the gate is AppAssignment. Namespace kdyf.Authorization.EntraId.Migration, as before the package was
-       renamed; the package will also hold the migration of the legacy schema. -->
+       Removed once the gate is AppAssignment. -->
   <PropertyGroup>
-    <Description>Temporary: moves the kdyf.Authorization access gate from an Entra security group to assignments to the Enterprise application — dual writes and an audited background sync.</Description>
+    <Description>Migrations for kdyf.Authorization: the versioned schema on SQL Server (detect, plan, script, apply, adopt, verify) and, temporarily, moving the access gate from an Entra security group to Enterprise application assignments.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- The schema migration reads SQL Server's catalog (sys.*) and takes sp_getapplock: SQL Server only. Through EF's
+         provider, so the host and this package agree on one Microsoft.Data.SqlClient. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
   </ItemGroup>
 
   <ItemGroup>
@@ -22,6 +31,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="kdyf.Authorization.EntraId.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.Migrations.Test" />
   </ItemGroup>
 
 </Project>

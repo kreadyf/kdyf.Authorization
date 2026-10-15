@@ -29,6 +29,13 @@ namespace kdyf.Authorization.EntityFrameworkCore
 
         /// <summary>SQL schema of the tables.</summary>
         public string Schema { get; set; } = ModelBuilderExtensions.DefaultSchema;
+
+        /// <summary>
+        /// Refuse to start on a schema without a version (no <c>SchemaVersion</c> table), instead of only warning. Turn it
+        /// on once every environment has been migrated or adopted (<c>kdyf-auth adopt</c>): a schema whose version is below
+        /// the one the packages require stops the host either way.
+        /// </summary>
+        public bool RequireSchemaVersion { get; set; }
     }
 
     /// <summary>

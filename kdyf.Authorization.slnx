@@ -5,6 +5,7 @@
     <Project Path="src/kdyf.Authorization.EntityFrameworkCore/kdyf.Authorization.EntityFrameworkCore.csproj" />
     <Project Path="src/kdyf.Authorization.Migrations/kdyf.Authorization.Migrations.csproj" />
     <Project Path="src/kdyf.Authorization.EntraId/kdyf.Authorization.EntraId.csproj" />
+    <Project Path="src/kdyf.Authorization.Tool/kdyf.Authorization.Tool.csproj" />
     <Project Path="src/kdyf.Authorization/kdyf.Authorization.csproj" />
   </Folder>
   <Folder Name="/test/">
@@ -14,6 +15,7 @@
     <Project Path="test/kdyf.Authorization.Endpoints.Test/kdyf.Authorization.Endpoints.Test.csproj" />
     <Project Path="test/kdyf.Authorization.EntityFrameworkCore.Test/kdyf.Authorization.EntityFrameworkCore.Test.csproj" />
     <Project Path="test/kdyf.Authorization.EntraId.Test/kdyf.Authorization.EntraId.Test.csproj" />
+    <Project Path="test/kdyf.Authorization.Migrations.Test/kdyf.Authorization.Migrations.Test.csproj" />
     <Project Path="test/kdyf.Authorization.Test/kdyf.Authorization.Test.csproj" />
   </Folder>
 </Solution>

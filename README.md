@@ -24,7 +24,8 @@ All of them ship with the same version.
 | `kdyf.Authorization.EntraId` | Entra ID sign-in and the access gate, through Microsoft Graph |
 | `kdyf.Authorization.AspNetCore` | Composition for a host: `AddKdyfAuthorization`, `UseKdyfAuthorization`; optional `GET auth/me`, `GET auth/policies` |
 | `kdyf.Authorization.Administration` | Administration: people, roles, PATs, directory and access gate through Graph, audit log, simulation; `AddKdyfAuthorizationAdministration` and the optional endpoints |
-| `kdyf.Authorization.Migrations` | Temporary: moving the access gate from a group to app assignments |
+| `kdyf.Authorization.Migrations` | The versioned schema (SQL Server): detect, plan, script, apply, verify, adopt; and, temporarily, moving the access gate from a group to app assignments |
+| `kdyf.Authorization.Tool` | The `kdyf-auth` dotnet tool: the schema commands without a host |
 
 Every package targets .NET 8 and .NET 10. Namespaces did not change when the former `*.Endpoints`,
 `Administration.EntraId` and `Administration.AspNetCore` packages were merged, nor when `EntraId.Migration` became
@@ -69,6 +70,7 @@ and the message names the key.
 "Authorization": {
   "ConnectionStringName": "Authorization",    // ConnectionStrings:{name}; the host may also name it in code
   "Schema": "auth",
+  "RequireSchemaVersion": false,              // true once every environment is versioned
   "EntraId": { "TenantId": "…", "ClientId": "…", "Audience": "" },
   "Directory": {
     "Gate": "Group",                          // Group | Migrating | AppAssignment
@@ -87,6 +89,44 @@ Secrets never belong in `appsettings.json`. The Microsoft Graph application perm
 `AppRoleAssignment.ReadWrite.All` for app assignments. That last one is powerful — it can assign any app role in the
 tenant — so give it to a separate app registration used only for Graph, with a certificate kept in a vault.
 
+## Schema versions
+
+The tables are versioned, the way Umbraco does it: `{Schema}.SchemaVersion` records each step applied, with its
+checksum, and the packages require a version (`AuthorizationSchema.RequiredVersion`). The state of a database is read
+from SQL Server's catalog, never deduced from a model:
+
+| State | What happens |
+|---|---|
+| Empty | installed from scratch |
+| Versioned | the missing steps are applied |
+| Version 1 without a history (the hosts' script) | **adopted**: stamped, not rebuilt |
+| Version 1 with case-insensitive keys | adopted after a collation repair, only with `--approve collation-repair` |
+| The legacy kdyf.auth.* schema | never touched in place: imported into another schema |
+| Anything else | nothing is done; the differences are reported |
+
+Each step runs in its own transaction with its verification and its history row, one run at a time per schema. A step
+that fails is recorded and the next run resumes it. A database whose tables hold rows is changed only with a recent
+backup in `msdb` or `--backup-confirmed`.
+
+```csharp
+var app = builder.Build();
+if (await app.RunKdyfAuthCommandAsync(args)) return;   // <host> kdyf-auth plan | apply | verify | ...
+```
+
+```bash
+dotnet tool install --global kdyf.Authorization.Tool
+kdyf-auth plan      # the connection string in KDYF_AUTH_CONNECTION_STRING, an identity with DDL
+kdyf-auth apply --backup-confirmed --app-user my_app_user
+kdyf-auth verify
+```
+
+`script <file>` writes the SQL instead, for a DBA; run `verify` after it. The application's database user belongs in the
+role `kdyf_{schema}_runtime`, which may read the version but not write the history, and may insert into the audit log but
+not change it. That only holds if the user is not `db_owner` or `db_datawriter`.
+
+When the host starts it checks the version: below the required one, or with a failed step, it does not start; without a
+history it only warns, until `RequireSchemaVersion` is set in the section.
+
 ## Build and test
 
 ```bash
@@ -94,8 +134,10 @@ dotnet build kdyf.Authorization.slnx
 dotnet test kdyf.Authorization.slnx
 ```
 
-Requires the .NET 10 SDK. Dependency versions are in `Directory.Packages.props`. The tests need neither a database
-nor Entra ID: in-memory SQLite and an in-memory Microsoft Graph.
+Requires the .NET 10 SDK. Dependency versions are in `Directory.Packages.props`. The tests need no Entra ID (an
+in-memory Microsoft Graph) and mostly no database (in-memory SQLite). The schema tests run against a real SQL Server:
+LocalDB, or the server in `KDYF_AUTHZ_TEST_SQLSERVER` (a connection string without a database); without one they are
+inconclusive.
 
 To try the packages in another solution before they are published, `pack-local.ps1` builds, tests and packs them into
 a local feed (`C:\Nuget` by default) with a unique version suffix per run.
