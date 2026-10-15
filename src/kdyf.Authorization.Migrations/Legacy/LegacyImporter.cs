@@ -111,6 +111,9 @@ namespace kdyf.Authorization.Migrations.Legacy
             issues.AddRange(plan.Issues);
 
             // Step 10 (meaning): nobody gains. On the plan, before anything is written; the copy is then verified to equal it.
+            // Only on a plan without blockers: what it would decide is not known until they are resolved.
+            if (issues.Any(i => i.Severity == IssueSeverity.Blocker))
+                return new LegacyImportReport { Applied = false, Issues = issues, Changes = new Dictionary<string, (int, int, int)>(), Plan = plan };
             var exceptions = await InvariantExceptions.LoadAsync(connection, target, cancellationToken);
             var invariant = AccessInvariant.Check(report.Data, identities, plan, declared, request.Invariant, exceptions, DateTime.UtcNow);
             issues.AddRange(invariant.Issues);

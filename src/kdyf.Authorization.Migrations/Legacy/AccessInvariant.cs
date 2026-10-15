@@ -99,10 +99,14 @@ namespace kdyf.Authorization.Migrations.Legacy
                 plan.Roles.ToDictionary(r => r.RoleValue, r => (IReadOnlySet<string>)plan.Grants.Where(g => g.RoleValue == r.RoleValue).Select(g => g.PermissionCode).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal),
                 declared, settings.MemberGrants);
             var rolesOf = plan.UserRoles.ToLookup(ur => ur.ObjectId, ur => ur.RoleValue, StringComparer.OrdinalIgnoreCase);
-            var profiles = plan.Profiles.ToDictionary(p => p.ObjectId, StringComparer.OrdinalIgnoreCase);
-            var gate = plan.Profiles.ToDictionary(p => p.ObjectId, p => snapshot.TryGetValue(p.LegacyUserId, out var i) && i.PassesNewGate == true, StringComparer.OrdinalIgnoreCase);
+            // Several legacy users on one person is refused by the plan; here it must not throw: the person counts as active
+            // and inside the gate only if every one of them is.
+            var profiles = plan.Profiles.GroupBy(p => p.ObjectId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.All(p => p.IsActive), StringComparer.OrdinalIgnoreCase);
+            var gate = plan.Profiles.GroupBy(p => p.ObjectId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.All(p => snapshot.TryGetValue(p.LegacyUserId, out var i) && i.PassesNewGate == true), StringComparer.OrdinalIgnoreCase);
             IReadOnlySet<string> AfterOf(string objectId) =>
-                profiles.TryGetValue(objectId, out var profile) && profile.IsActive && gate.GetValueOrDefault(objectId)
+                profiles.GetValueOrDefault(objectId) && gate.GetValueOrDefault(objectId)
                     ? Concrete(map.ForMember(rolesOf[objectId]))
                     : new HashSet<string>();
             var memberCodes = Concrete(map.ForMember(Array.Empty<string>()));
