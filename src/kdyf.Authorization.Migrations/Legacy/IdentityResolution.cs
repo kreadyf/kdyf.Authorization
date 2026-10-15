@@ -62,6 +62,15 @@ namespace kdyf.Authorization.Migrations.Legacy
 
         /// <summary>Role values chosen by hand (RoleId → roleValue), frozen before the first copy.</summary>
         public Dictionary<int, string> RoleValueOverrides { get; set; } = new();
+
+        /// <summary>
+        /// Codes that must be held after the import by exactly who held them before (the administration code always is):
+        /// kdyf.admin's <c>global.Vault</c>, for instance.
+        /// </summary>
+        public List<string> ExactCodes { get; set; } = new();
+
+        /// <summary>How many people must administer access after the import.</summary>
+        public int MinAdministrators { get; set; } = 2;
     }
 
     /// <summary>How a legacy user was matched to a person in the directory.</summary>

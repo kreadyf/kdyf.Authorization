@@ -2,8 +2,10 @@ using System.Data.Common;
 using kdyf.Authorization.Abstractions;
 using kdyf.Authorization.Migrations.Schema;
 using kdyf.Authorization.Roles;
+using kdyf.Authorization;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace kdyf.Authorization.Migrations.Legacy
@@ -17,7 +19,8 @@ namespace kdyf.Authorization.Migrations.Legacy
         public static IServiceCollection AddKdyfAuthorizationLegacyImport(this IServiceCollection services, Action<LegacyImportOptions> configure)
         {
             services.AddOptions<LegacyImportOptions>().Configure(configure);
-            services.AddSingleton<ILegacyDirectory, GraphLegacyDirectory>();
+            // TryAdd: a host (or a test) that brings its own directory keeps it.
+            services.TryAddSingleton<ILegacyDirectory, GraphLegacyDirectory>();
             return services;
         }
     }
@@ -28,7 +31,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// </summary>
     internal static class LegacyCommands
     {
-        public static bool Handles(string command) => command is "resolve" or "identities" or "import";
+        public static bool Handles(string command) => command is "resolve" or "identities" or "import" or "exceptions";
 
         public static async Task<int> RunAsync(
             IReadOnlyList<string> args, string connectionString, string targetSchema, IServiceProvider? services, TextWriter output, CancellationToken cancellationToken)
@@ -58,8 +61,8 @@ namespace kdyf.Authorization.Migrations.Legacy
                     case "--legacy-schema" when i + 1 < args.Count: legacySchema = args[++i]; break;
                     case "--schema" when i + 1 < args.Count: targetSchema = args[++i]; break;
                     default:
-                        if (command is "identities" or "import" && subcommand is null) subcommand = args[i].ToLowerInvariant();
-                        else if (command == "identities" && file is null) file = args[i];
+                        if (command is "identities" or "import" or "exceptions" && subcommand is null) subcommand = args[i].ToLowerInvariant();
+                        else if (command is "identities" or "exceptions" && file is null) file = args[i];
                         else
                         {
                             await output.WriteLineAsync($"Unknown argument '{args[i]}'.");
@@ -93,8 +96,17 @@ namespace kdyf.Authorization.Migrations.Legacy
                             await output.WriteLineAsync($"Unknown approval {string.Join(", ", unknown)}: {LegacyImportApprovals.UnresolvedUsers}.");
                             return SchemaCommandLine.Usage;
                         }
+                        var authorization = services!.GetService<PermissionAuthorizationOptions>();
                         var report = await LegacyImporter.RunAsync(connectionString, new LegacyImportRequest
                         {
+                            Invariant = new InvariantSettings
+                            {
+                                MemberGrants = authorization?.MemberPermissionCodes.ToList() ?? new List<string>(),
+                                AdministrationCode = authorization?.AdministrationPermissionCode,
+                                ExactCodes = options.ExactCodes.Concat(authorization?.AdministrationPermissionCode is { } admin ? new[] { admin } : Array.Empty<string>()).Distinct().ToList(),
+                                MinAdministrators = options.MinAdministrators,
+                                TokensExemptFromGate = options.Gate == LegacyGate.Group,
+                            },
                             LegacySchema = legacySchema,
                             TargetSchema = targetSchema,
                             Declared = declared.Permissions,
@@ -111,6 +123,26 @@ namespace kdyf.Authorization.Migrations.Legacy
                         }, cancellationToken);
                         await output.WriteAsync(LegacyImporter.ToText(report));
                         return report.HasBlockers ? SchemaCommandLine.NotDone : SchemaCommandLine.Ok;
+                    }
+
+                    case "exceptions" when subcommand == "import" && file is not null:
+                    {
+                        if (string.IsNullOrWhiteSpace(approver))
+                        {
+                            await output.WriteLineAsync("Name who approves: --approver <name>.");
+                            return SchemaCommandLine.Usage;
+                        }
+                        var json = await File.ReadAllTextAsync(file, cancellationToken);
+                        var exceptions = InvariantExceptions.Parse(json, approver);
+                        await using (var bootstrap = connection.CreateCommand())
+                        {
+                            bootstrap.CommandText = MigrationStore.BootstrapSql(targetSchema);
+                            await bootstrap.ExecuteNonQueryAsync(cancellationToken);
+                        }
+                        var checksum = InvariantExceptions.Checksum(json);
+                        await InvariantExceptions.ReplaceAsync(connection, targetSchema, exceptions, checksum, cancellationToken);
+                        await output.WriteLineAsync($"{exceptions.Count} exception(s) approved by {approver}, file {checksum[..12]}…; they replace the previous set.");
+                        return SchemaCommandLine.Ok;
                     }
 
                     case "identities" when subcommand == "export" && file is not null:

@@ -2,6 +2,7 @@ using kdyf.Authorization.Abstractions;
 using kdyf.Authorization.Migrations.Legacy;
 using kdyf.Authorization.Migrations.Schema;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace kdyf.Authorization.Migrations.Test;
 
@@ -42,7 +43,18 @@ public sealed class LegacyImportTests
         Assert.IsTrue(installed.Succeeded, installed.Error);
         if (resolve)
             await ResolveAsync(db);
+        // The token of user 3 (no identity) stops validating: approved, with the count, as a person would.
+        await ApproveAsync(db, new InvariantException(InvariantKinds.TokenCount, null, null, -1, "user 3 has no identity", "test"));
         return db;
+    }
+
+    private static async Task ApproveAsync(TestDatabase db, params InvariantException[] exceptions)
+    {
+        await using var connection = new SqlConnection(db.ConnectionString);
+        await connection.OpenAsync();
+        await using (var bootstrap = new SqlCommand(MigrationStore.BootstrapSql(Target), connection))
+            await bootstrap.ExecuteNonQueryAsync();
+        await InvariantExceptions.ReplaceAsync(connection, Target, exceptions, new string('0', 64), default);
     }
 
     /// <summary>Users 1, 2 and 4 resolve; user 3 (no object id, active, holding a role) does not.</summary>
@@ -61,7 +73,7 @@ public sealed class LegacyImportTests
 
     private static Task<LegacyImportReport> ImportAsync(
         TestDatabase db, bool apply = true, bool approveLosses = true, LegacyImportSettings? settings = null,
-        IReadOnlyList<ILegacyImportHostStep>? steps = null, int batch = 5000) =>
+        IReadOnlyList<ILegacyImportHostStep>? steps = null, int batch = 5000, InvariantSettings? invariant = null) =>
         LegacyImporter.RunAsync(db.ConnectionString, new LegacyImportRequest
         {
             LegacySchema = "auth",
@@ -69,6 +81,7 @@ public sealed class LegacyImportTests
             Declared = Declared,
             Apply = apply,
             AuditBatchSize = batch,
+            Invariant = invariant ?? new InvariantSettings(),
             HostSteps = steps ?? Array.Empty<ILegacyImportHostStep>(),
             Settings = new LegacyImportSettings
             {
@@ -191,7 +204,7 @@ public sealed class LegacyImportTests
         var report = await ImportAsync(db, approveLosses: false);
 
         Assert.IsTrue(report.HasBlockers);
-        StringAssert.Contains(report.Issues.Single(i => i.Severity == IssueSeverity.Blocker).Detail, LegacyImportApprovals.UnresolvedUsers);
+        StringAssert.Contains(report.Issues.Single(i => i.Severity == IssueSeverity.Blocker && i.Code == "unresolved-user").Detail, LegacyImportApprovals.UnresolvedUsers);
         Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"));
     }
 
@@ -239,6 +252,7 @@ public sealed class LegacyImportTests
     public async Task The_auto_provisioned_role_and_the_bootstrap_token_are_not_carried_over_alive()
     {
         await using var db = await PrepareAsync();
+        await ApproveAsync(db, new InvariantException(InvariantKinds.TokenCount, null, null, -2, "bootstrap and ownerless tokens", "test"));
 
         var report = await ImportAsync(db, settings: new LegacyImportSettings
         {
@@ -264,6 +278,55 @@ public sealed class LegacyImportTests
         Assert.AreEqual("super-admin", step.RoleMap![1]);
         Assert.AreEqual(Admin, step.UserMap![1]);
         Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"), "the failed run left the previous copy");
+    }
+
+    /// <summary>
+    /// Nobody gains, on the real copy: the base access of members (Default) would be new for everybody, so the import is
+    /// refused and writes nothing, until a person approves it with the exceptions command.
+    /// </summary>
+    [TestMethod]
+    public async Task A_gain_refuses_the_import_until_its_exception_is_approved_through_the_command()
+    {
+        await using var db = await PrepareAsync();
+        var invariant = new InvariantSettings { MemberGrants = new[] { "Default" } };
+
+        var refused = await ImportAsync(db, invariant: invariant);
+        Assert.IsTrue(refused.Issues.Any(i => i.Code == "gain" && i.Severity == IssueSeverity.Blocker && i.Detail.Contains("'Default'")), LegacyImporter.ToText(refused));
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"), "nothing written");
+
+        var file = Path.Combine(Path.GetTempPath(), $"exceptions-{Guid.NewGuid():N}.json");
+        try
+        {
+            await File.WriteAllTextAsync(file, """
+                { "exceptions": [
+                  { "kind": "member-base-access", "reason": "Members of the new gate get the base access" },
+                  { "kind": "token-count", "value": -1, "reason": "user 3 has no identity" } ] }
+                """);
+            var output = new StringWriter();
+            var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+                .AddSingleton<ILegacyDirectory>(new NoDirectory()).AddSingleton<IMembershipSource>(new NoDirectory())
+                .AddKdyfAuthorizationLegacyImport(o => o.LegacyGroupId = Guid.NewGuid().ToString())
+                .BuildServiceProvider();
+            var code = await SchemaCommandLine.RunAsync(new[] { "exceptions", "import", file, "--approver", "carlos" }, db.ConnectionString, Target, output, services);
+            Assert.AreEqual(SchemaCommandLine.Ok, code, output.ToString());
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+
+        var approved = await ImportAsync(db, invariant: invariant);
+        Assert.IsTrue(approved.Applied, LegacyImporter.ToText(approved));
+        Assert.AreEqual("carlos", await db.ScalarAsync<string>("SELECT TOP 1 ApprovedBy FROM authz.MigrationException"));
+    }
+
+    private sealed class NoDirectory : ILegacyDirectory, IMembershipSource
+    {
+        public Task<DirectoryPerson?> GetAsync(string objectId, CancellationToken cancellationToken = default) => Task.FromResult<DirectoryPerson?>(null);
+        public Task<IReadOnlyList<DirectoryPerson>> FindExactAsync(string email, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DirectoryPerson>>(Array.Empty<DirectoryPerson>());
+        public Task<bool> InLegacyGroupAsync(string objectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<Membership?> GetMembershipAsync(string subjectId, CancellationToken cancellationToken = default) => Task.FromResult<Membership?>(null);
+        public Task<DirectoryIdentity?> FindByEmailAsync(string email, CancellationToken cancellationToken = default) => Task.FromResult<DirectoryIdentity?>(null);
     }
 
     private sealed class RecordingStep : ILegacyImportHostStep

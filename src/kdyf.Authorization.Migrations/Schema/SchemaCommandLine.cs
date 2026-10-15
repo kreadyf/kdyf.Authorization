@@ -45,6 +45,9 @@ namespace kdyf.Authorization.Migrations.Schema
                                  (host) The review of the identities: approvals, and object ids given by hand.
               import plan | apply [--approve unresolved-users]
                                  (host) Copy the legacy schema into this one, reconciled and verified; plan is a dry run.
+                                 Nobody may gain: every gain is refused unless approved in the exceptions.
+              exceptions import <file> --approver <name>
+                                 (host) The approved exceptions to the invariant (JSON); the file replaces the previous set.
 
             Options:
               --schema <name>        The schema (default: the host's configuration, or 'auth').

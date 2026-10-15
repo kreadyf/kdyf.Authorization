@@ -45,6 +45,9 @@ namespace kdyf.Authorization.Migrations.Legacy
         public bool Apply { get; init; }
 
         public int AuditBatchSize { get; init; } = 5000;
+
+        /// <summary>How the invariant (nobody gains) is checked for this application.</summary>
+        public InvariantSettings Invariant { get; init; } = new();
     }
 
     /// <summary>What an import run did, or would do.</summary>
@@ -58,6 +61,7 @@ namespace kdyf.Authorization.Migrations.Legacy
 
         public int AuditCopied { get; init; }
         public LegacyImportPlan? Plan { get; init; }
+        public InvariantReport? Invariant { get; init; }
 
         public bool HasBlockers => Issues.Any(i => i.Severity == IssueSeverity.Blocker);
     }
@@ -105,8 +109,13 @@ namespace kdyf.Authorization.Migrations.Legacy
             var declared = request.Declared.Select(p => p.Code).ToHashSet(StringComparer.Ordinal);
             var plan = LegacyImportPlan.Build(report.Data, report, identities, declared, mapped, request.Settings, DateTime.UtcNow);
             issues.AddRange(plan.Issues);
+
+            // Step 10 (meaning): nobody gains. On the plan, before anything is written; the copy is then verified to equal it.
+            var exceptions = await InvariantExceptions.LoadAsync(connection, target, cancellationToken);
+            var invariant = AccessInvariant.Check(report.Data, identities, plan, declared, request.Invariant, exceptions, DateTime.UtcNow);
+            issues.AddRange(invariant.Issues);
             if (issues.Any(i => i.Severity == IssueSeverity.Blocker))
-                return new LegacyImportReport { Applied = false, Issues = issues, Changes = new Dictionary<string, (int, int, int)>(), Plan = plan };
+                return new LegacyImportReport { Applied = false, Issues = issues, Changes = new Dictionary<string, (int, int, int)>(), Plan = plan, Invariant = invariant };
 
             // Step 1–8, in one transaction: committed by apply, rolled back by the dry run.
             await ExecuteAsync(connection, null, MigrationStore.BootstrapSql(target) + ImportTablesSql(target), cancellationToken);
@@ -129,7 +138,8 @@ namespace kdyf.Authorization.Migrations.Legacy
                 if (differences.Count > 0)
                     throw new InvalidOperationException("The copy does not match the plan; nothing was changed: " + string.Join(" ", differences));
 
-                await RecordIssuesAsync(connection, transaction, target, runId, plan.Issues, cancellationToken);
+                await RecordIssuesAsync(connection, transaction, target, runId, plan.Issues.Concat(invariant.Issues)
+                    .Concat(invariant.Reductions.Select(r => new ImportIssue(IssueSeverity.Info, "reduction", r.Key, "loses " + string.Join(", ", r.Value)))), cancellationToken);
 
                 if (request.Apply)
                     await transaction.CommitAsync(cancellationToken);
@@ -151,7 +161,7 @@ namespace kdyf.Authorization.Migrations.Legacy
                 await LogAsync(connection, target, runId, plan, changes, audit, cancellationToken);
             }
 
-            return new LegacyImportReport { Applied = request.Apply, Issues = issues, Changes = changes, AuditCopied = audit, Plan = plan };
+            return new LegacyImportReport { Applied = request.Apply, Issues = issues, Changes = changes, AuditCopied = audit, Plan = plan, Invariant = invariant };
         }
 
         private static LegacyImportReport Refused(IEnumerable<ImportIssue> issues) =>
@@ -465,6 +475,12 @@ namespace kdyf.Authorization.Migrations.Legacy
                 text.AppendLine($"  {"AuditLog",-20} +{report.AuditCopied}{(report.Applied ? "" : " (pending)")}");
             foreach (var issue in report.Issues.OrderBy(i => i.Severity == IssueSeverity.Blocker ? 0 : i.Severity == IssueSeverity.Warning ? 1 : 2))
                 text.AppendLine(issue.ToString());
+            if (report.Invariant is { } invariant)
+            {
+                text.AppendLine($"  Tokens that validate: {invariant.TokensBefore} before, {invariant.TokensAfter} after. Administrators after: {invariant.AdministratorsAfter}.");
+                foreach (var (user, codes) in invariant.Reductions)
+                    text.AppendLine($"  user {user} loses: {string.Join(", ", codes)}");
+            }
             text.AppendLine(report.HasBlockers ? "Refused: nothing was changed."
                 : report.Applied ? "Imported." : "Dry run: nothing was changed. Run 'kdyf-auth import apply' to import.");
             return text.ToString();

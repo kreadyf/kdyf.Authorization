@@ -41,10 +41,13 @@ namespace kdyf.Authorization.Migrations.Legacy
                 TakenAt          DATETIME2   NOT NULL
             );
 
+            {InvariantExceptions.BootstrapSql(schema)}
+
             DECLARE @role sysname = N'kdyf_{schema}_runtime';
             IF DATABASE_PRINCIPAL_ID(@role) IS NOT NULL
                 EXEC(N'DENY SELECT, INSERT, UPDATE, DELETE ON [{schema}].[{IdentityTable}] TO ' + @role + N';
-                       DENY SELECT, INSERT, UPDATE, DELETE ON [{schema}].[{GateTable}] TO ' + @role + N';');
+                       DENY SELECT, INSERT, UPDATE, DELETE ON [{schema}].[{GateTable}] TO ' + @role + N';
+                       DENY SELECT, INSERT, UPDATE, DELETE ON [{schema}].[{InvariantExceptions.Table}] TO ' + @role + N';');
             """;
 
         /// <summary>Replaces every identity and its gate snapshot, in one transaction.</summary>
