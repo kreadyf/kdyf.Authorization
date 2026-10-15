@@ -39,6 +39,7 @@ namespace kdyf.Authorization.Migrations.Schema
               adopt              Like apply, only on a database in the shape of version 1 without a history.
               verify             The schema is at the required version and equals its manifest. Read-only.
               cutover            Record CutoverCompleted: from then on the legacy import refuses to run.
+              legacy-report      What a legacy kdyf.auth.* schema holds and what its import would decide. Read-only.
 
             Options:
               --schema <name>        The schema (default: the host's configuration, or 'auth').
@@ -46,6 +47,7 @@ namespace kdyf.Authorization.Migrations.Schema
               --approve <what>       collation-repair | privileged-app-user. Repeatable.
               --backup-confirmed     A backup of the database was taken for this run.
               --host-version <v>     Recorded in the run log.
+              --legacy-schema <name> The legacy schema to read (default 'auth').
             """;
 
         /// <summary>Runs one command. <paramref name="args"/> start after <c>kdyf-auth</c>.</summary>
@@ -64,6 +66,7 @@ namespace kdyf.Authorization.Migrations.Schema
             var command = args[0].ToLowerInvariant();
             var options = new SchemaMigrationOptions { Schema = defaultSchema };
             string? file = null;
+            var legacySchema = "auth";
 
             for (var i = 1; i < args.Count; i++)
             {
@@ -77,6 +80,7 @@ namespace kdyf.Authorization.Migrations.Schema
                         case "--approve": options.Approvals.Add(Value()); break;
                         case "--backup-confirmed": options.BackupConfirmed = true; break;
                         case "--host-version": options.HostVersion = Value(); break;
+                        case "--legacy-schema": legacySchema = Value(); break;
                         default:
                             if (command == "script" && file is null && !args[i].StartsWith("--", StringComparison.Ordinal))
                                 file = args[i];
@@ -99,6 +103,26 @@ namespace kdyf.Authorization.Migrations.Schema
                     await output.WriteLineAsync($"Unknown approval '{approval}': {SchemaApprovals.CollationRepair} or {SchemaApprovals.PrivilegedAppUser}.");
                     return Usage;
                 }
+
+            if (command == "legacy-report")
+            {
+                try
+                {
+                    var (shape, report) = await Legacy.LegacyInspector.InspectAsync(connectionString, legacySchema, cancellationToken: cancellationToken);
+                    if (report is null)
+                    {
+                        await output.WriteLineAsync($"Legacy shape {shape.Label}: {shape.Description}");
+                        return NotDone;
+                    }
+                    await output.WriteAsync(report.ToText(shape));
+                    return report.HasBlockers ? NotDone : Ok;
+                }
+                catch (Exception ex) when (ex is DbException or InvalidOperationException)
+                {
+                    await output.WriteLineAsync($"legacy-report failed: {ex.Message}");
+                    return NotDone;
+                }
+            }
 
             SchemaMigrator migrator;
             try

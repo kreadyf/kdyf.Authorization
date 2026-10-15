@@ -65,6 +65,9 @@ namespace kdyf.Authorization.Migrations.Schema
 
         /// <summary>Nothing is applied while it stands.</summary>
         Blocker,
+
+        /// <summary>Worth knowing; decides nothing.</summary>
+        Info,
     }
 
     /// <summary>Something found before applying: a code that does not change, and a message for a person.</summary>
