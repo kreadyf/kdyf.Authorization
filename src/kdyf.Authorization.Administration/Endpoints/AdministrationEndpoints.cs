@@ -64,6 +64,15 @@ namespace Microsoft.AspNetCore.Builder
                     Done(http, await access.RevokeAsync(objectId.ToString(), await actors.GetAsync(ct), ct)))
                 .RequireAuthorization(Administration);
 
+            // Suspends the person: nothing from their next request on, roles and membership kept. And lifts it.
+            group.MapPost("users/{objectId:guid}/suspension", async (Guid objectId, HttpContext http, [FromServices] IAdminActorAccessor actors, [FromServices] IAccessAdminService access, CancellationToken ct) =>
+                    Accept(http, await access.SuspendAsync(objectId.ToString(), await actors.GetAsync(ct), ct), AdministrationMapper.ToDto))
+                .RequireAuthorization(Administration);
+
+            group.MapDelete("users/{objectId:guid}/suspension", async (Guid objectId, HttpContext http, [FromServices] IAdminActorAccessor actors, [FromServices] IAccessAdminService access, CancellationToken ct) =>
+                    Accept(http, await access.ReactivateAsync(objectId.ToString(), await actors.GetAsync(ct), ct), AdministrationMapper.ToDto))
+                .RequireAuthorization(Administration);
+
             // ── Roles and catalog ────────────────────────────────────────────
 
             group.MapGet("roles", async (HttpContext http, [FromServices] IAdminActorAccessor actors, [FromServices] IAccessAdminService access, CancellationToken ct) =>
@@ -87,7 +96,7 @@ namespace Microsoft.AspNetCore.Builder
                     Found(http, await access.GetRoleAsync(roleValue, await actors.GetAsync(ct), ct), "The role", AdministrationMapper.ToDto))
                 .RequireAuthorization(Administration);
 
-            // Name and description. The value never changes, and what the role grants is /permissions.
+            // Name and description, and optionally what it grants, in one transaction. The value never changes.
             group.MapPut("roles/{roleValue}", async (string roleValue, UpdateRoleRequestDto request, HttpContext http, [FromServices] IAdminActorAccessor actors, [FromServices] IAccessAdminService access, CancellationToken ct) =>
                     Accept(http, await access.UpdateRoleAsync(roleValue, AdministrationMapper.ToRequest(request), await actors.GetAsync(ct), ct), AdministrationMapper.ToDto))
                 .RequireAuthorization(Administration);

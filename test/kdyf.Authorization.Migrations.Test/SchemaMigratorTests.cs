@@ -13,6 +13,8 @@ namespace kdyf.Authorization.Migrations.Test;
 [TestClass]
 public sealed class SchemaMigratorTests
 {
+    private static readonly int Steps = MigrationSteps.All.Count;
+
     private static SchemaMigrator Migrator(TestDatabase db, Action<SchemaMigrationOptions>? configure = null)
     {
         var options = new SchemaMigrationOptions();
@@ -34,7 +36,7 @@ public sealed class SchemaMigratorTests
         Assert.AreEqual(SchemaMigrator.RequiredVersion, report.Version);
         var verification = await migrator.VerifyAsync();
         Assert.IsTrue(verification.Succeeded, string.Join(Environment.NewLine, verification.Issues));
-        Assert.AreEqual(4, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaVersion WHERE Status = 'Applied' AND Origin = 'installed'"));
+        Assert.AreEqual(Steps, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaVersion WHERE Status = 'Applied' AND Origin = 'installed'"));
         Assert.AreEqual("Succeeded", await db.ScalarAsync<string>("SELECT Result FROM auth.SchemaMigrationLog"));
     }
 
@@ -47,7 +49,7 @@ public sealed class SchemaMigratorTests
         var second = await Migrator(db).ApplyAsync();
 
         Assert.AreEqual(SchemaRunResult.UpToDate, second.Result);
-        Assert.AreEqual(4, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaVersion"));
+        Assert.AreEqual(Steps, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaVersion"));
         Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaMigrationLog"));
     }
 
@@ -228,7 +230,7 @@ public sealed class SchemaMigratorTests
 
         Assert.IsTrue(reports.All(r => r.Succeeded), string.Join(" ", reports.Select(r => r.Error)));
         Assert.AreEqual(1, reports.Count(r => r.Result == SchemaRunResult.Succeeded));
-        Assert.AreEqual(4, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaVersion"));
+        Assert.AreEqual(Steps, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaVersion"));
     }
 
     [TestMethod]

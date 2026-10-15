@@ -19,13 +19,13 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         };
 
         public static UpdateRoleRequest ToRequest(UpdateRoleRequestDto request) =>
-            new() { Name = request.Name, Description = request.Description };
+            new() { Name = request.Name, Description = request.Description, Permissions = request.Permissions?.ToList(), Version = request.Version };
 
         public static SetRolePermissionsRequest ToRequest(SetRolePermissionsRequestDto request) =>
             new() { Permissions = request.Permissions.ToList(), Version = request.Version };
 
         public static InviteRequest ToRequest(InviteRequestDto request) =>
-            new() { Email = request.Email, DisplayName = request.DisplayName };
+            new() { Email = request.Email, DisplayName = request.DisplayName, Roles = request.Roles.ToList() };
 
         public static AuditFilter ToFilter(AuditFilterDto? filter) => new()
         {
@@ -54,6 +54,8 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
             AccountEnabled = user.AccountEnabled,
             IsMember = user.IsMember,
             HasAccess = user.HasAccess,
+            IsSuspended = user.IsSuspended,
+            LastLoginAt = user.LastLoginAt,
             IsSelf = user.IsSelf,
             Roles = user.Roles.Select(r => new AssignedRoleDto { Value = r.Value, Name = r.Name, Configured = r.Configured, Assignable = r.Assignable }).ToList(),
             Permissions = user.Permissions.ToList()

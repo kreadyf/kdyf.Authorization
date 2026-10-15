@@ -15,7 +15,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         /// The schema version the model of this package expects: the last step of kdyf.Authorization.Migrations, which
         /// ships with the same version. A schema at this version or newer works (steps widen, they do not break).
         /// </summary>
-        public const int RequiredVersion = 3;
+        public const int RequiredVersion = 4;
     }
 
     /// <summary>
@@ -84,7 +84,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-        internal sealed record SchemaVersionState(int? Version, string? FailedStep);
+        internal sealed record SchemaVersionState(int? Version, string? FailedStep, bool HasUserProfile = true);
 
         /// <summary>The reason the host must not start, or <c>null</c>.</summary>
         internal static string? Evaluate(SchemaVersionState state, AuthorizationStoreOptions options)
@@ -94,9 +94,16 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 return $"The migration of the schema '{schema}' failed at step {state.FailedStep} and was not resumed. "
                        + "Run 'kdyf-auth apply' again: it resumes the failed step.";
             if (state.Version is null)
-                return options.RequireSchemaVersion
-                    ? $"The schema '{schema}' has no version, and RequireSchemaVersion is on. Adopt or migrate it with 'kdyf-auth adopt' or 'kdyf-auth apply'."
-                    : null;
+            {
+                if (options.RequireSchemaVersion)
+                    return $"The schema '{schema}' has no version, and RequireSchemaVersion is on. Adopt or migrate it with 'kdyf-auth adopt' or 'kdyf-auth apply'.";
+                // Without a version the host only warns, unless the tables these packages need are not there: every
+                // request would fail on them, so it is said now.
+                if (!state.HasUserProfile)
+                    return $"The schema '{schema}' has no version and no UserProfile table, which these packages need (schema version 4). "
+                           + "Run 'kdyf-auth adopt' (or 'apply'): it stamps the existing tables and adds the missing ones.";
+                return null;
+            }
             if (state.Version < AuthorizationSchema.RequiredVersion)
                 return $"The schema '{schema}' is at version {state.Version}; these packages require {AuthorizationSchema.RequiredVersion}. "
                        + "Run 'kdyf-auth apply' before deploying this version.";
@@ -115,17 +122,18 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 // highest step applied with every step before it applied too.
                 command.CommandText = $"""
                     IF OBJECT_ID(N'[{schema}].[SchemaVersion]') IS NULL
-                        SELECT CAST(NULL AS INT), CAST(NULL AS VARCHAR(100));
+                        SELECT CAST(NULL AS INT), CAST(NULL AS VARCHAR(100)), CAST(CASE WHEN OBJECT_ID(N'[{schema}].[UserProfile]') IS NULL THEN 0 ELSE 1 END AS BIT);
                     ELSE
                         SELECT
                             (SELECT MAX(v.Version) FROM [{schema}].[SchemaVersion] v
                              WHERE v.Status = 'Applied'
                                AND (SELECT COUNT(*) FROM [{schema}].[SchemaVersion] p WHERE p.Status = 'Applied' AND p.Version <= v.Version) = v.Version + 1),
-                            (SELECT TOP (1) StepId FROM [{schema}].[SchemaVersion] WHERE Status = 'Failed' ORDER BY Version);
+                            (SELECT TOP (1) StepId FROM [{schema}].[SchemaVersion] WHERE Status = 'Failed' ORDER BY Version),
+                            CAST(CASE WHEN OBJECT_ID(N'[{schema}].[UserProfile]') IS NULL THEN 0 ELSE 1 END AS BIT);
                     """;
                 await using var reader = await command.ExecuteReaderAsync(cancellationToken);
                 await reader.ReadAsync(cancellationToken);
-                return new SchemaVersionState(reader.IsDBNull(0) ? null : reader.GetInt32(0), reader.IsDBNull(1) ? null : reader.GetString(1));
+                return new SchemaVersionState(reader.IsDBNull(0) ? null : reader.GetInt32(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetBoolean(2));
             }
             finally
             {

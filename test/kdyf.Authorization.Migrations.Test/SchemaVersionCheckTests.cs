@@ -42,10 +42,26 @@ public sealed class SchemaVersionCheckTests
     {
         await using var db = await TestDatabase.CreateAsync();
         await db.ExecuteAsync(Fixtures.HostScriptVersion1);
+        await db.ExecuteAsync("CREATE TABLE auth.UserProfile (objectId VARCHAR(50) NOT NULL PRIMARY KEY, isActive BIT NOT NULL);");
 
         await StartAsync(db);
         var error = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => StartAsync(db, require: true));
         StringAssert.Contains(error.Message, "no version");
+    }
+
+    /// <summary>
+    /// Without a version the host only warns, but without the profiles table every request would fail on it (the
+    /// suspension is read on each resolution): that is said at startup, with what to run.
+    /// </summary>
+    [TestMethod]
+    public async Task A_schema_without_a_version_and_without_the_profiles_does_not_start()
+    {
+        await using var db = await TestDatabase.CreateAsync();
+        await db.ExecuteAsync(Fixtures.HostScriptVersion1);
+
+        var error = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => StartAsync(db));
+
+        StringAssert.Contains(error.Message, "kdyf-auth adopt");
     }
 
     [TestMethod]

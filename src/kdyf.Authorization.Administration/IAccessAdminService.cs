@@ -46,6 +46,22 @@ namespace kdyf.Authorization.Administration
         /// </summary>
         Task<ValidationResult<bool>> RevokeAsync(string objectId, AdminActor actor, CancellationToken ct);
 
+        /// <summary>
+        /// Suspends the person: they hold nothing from their next request on (sessions, tokens, simulation), with their
+        /// roles and their membership left as they are. The rules of removing their roles apply: four eyes, nothing
+        /// beyond what the caller holds, and never the last administrator.
+        /// </summary>
+        Task<ValidationResult<AccessUserResponse>> SuspendAsync(string objectId, AdminActor actor, CancellationToken ct);
+
+        /// <summary>Lifts a suspension: the person holds again what their membership and roles give them.</summary>
+        Task<ValidationResult<AccessUserResponse>> ReactivateAsync(string objectId, AdminActor actor, CancellationToken ct);
+
+        /// <summary>
+        /// Whether the caller could give these roles to somebody else: they exist and grant nothing beyond what the
+        /// caller holds. Changes nothing; for checking a request before acting on it (an invitation with roles).
+        /// </summary>
+        Task<ValidationResult<bool>> CheckGrantableAsync(IReadOnlyCollection<string> roles, AdminActor actor, CancellationToken ct);
+
         /// <summary>Every role, with what it grants.</summary>
         Task<ValidationResult<List<RoleResponse>>> ListRolesAsync(AdminActor actor, CancellationToken ct);
 
@@ -55,7 +71,10 @@ namespace kdyf.Authorization.Administration
         /// <summary>Creates a role, optionally with what it grants.</summary>
         Task<ValidationResult<RoleResponse>> CreateRoleAsync(CreateRoleRequest request, AdminActor actor, CancellationToken ct);
 
-        /// <summary>Renames a role or changes its description. Its value, and what it grants, stay.</summary>
+        /// <summary>
+        /// Renames a role or changes its description and, when the request carries permissions, what it grants: in one
+        /// transaction, refused as a whole when <see cref="UpdateRoleRequest.Version"/> is stale. Its value stays.
+        /// </summary>
         Task<ValidationResult<RoleResponse>> UpdateRoleAsync(string roleValue, UpdateRoleRequest request, AdminActor actor, CancellationToken ct);
 
         /// <summary>Deletes a role nobody holds, with what it grants.</summary>

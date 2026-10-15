@@ -36,6 +36,12 @@ namespace kdyf.Authorization.EntityFrameworkCore
         /// the one the packages require stops the host either way.
         /// </summary>
         public bool RequireSchemaVersion { get; set; }
+
+        /// <summary>
+        /// How often, at most, a person's last access (<c>UserProfile.lastLoginAt</c>) is written: once per person in
+        /// this interval, whatever the number of requests. <see cref="TimeSpan.Zero"/> turns the recording off.
+        /// </summary>
+        public TimeSpan LastAccessInterval { get; set; } = TimeSpan.FromMinutes(15);
     }
 
     /// <summary>

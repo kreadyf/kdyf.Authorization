@@ -129,7 +129,7 @@ namespace kdyf.Authorization.Migrations.Schema
             var secondary = table.Indexes.Where(i => !i.PrimaryKey).ToList();
             foreach (var index in spec.Indexes)
             {
-                var actual = secondary.FirstOrDefault(i => SameColumns(i.Columns, index.Columns) && i.Unique == index.Unique && i.Filter is null);
+                var actual = secondary.FirstOrDefault(i => SameColumns(i.Columns, index.Columns) && i.Unique == index.Unique && SameFilter(i.Filter, index.Filter));
                 if (actual is null)
                 {
                     differences.Add(new(DifferenceKind.Mismatch, spec.Name, $"index {index.Name} ({string.Join(", ", index.Columns)}{(index.Unique ? ", unique" : "")}) is missing"));
@@ -141,6 +141,14 @@ namespace kdyf.Authorization.Migrations.Schema
 
             foreach (var extra in secondary.Where(i => spec.Indexes.All(s => !SameColumns(s.Columns, i.Columns) || s.Unique != i.Unique)))
                 differences.Add(new(DifferenceKind.Note, spec.Name, $"index {extra.Name} is not expected (tolerated)"));
+        }
+
+        /// <summary>SQL Server stores a filter as it normalised it, '([legacyUserId] IS NOT NULL)': compared without brackets, parentheses or spacing.</summary>
+        private static bool SameFilter(string? actual, string? expected)
+        {
+            static string Normal(string? filter) =>
+                new string((filter ?? string.Empty).Where(c => c is not ('[' or ']' or '(' or ')') && !char.IsWhiteSpace(c)).ToArray()).ToLowerInvariant();
+            return Normal(actual) == Normal(expected);
         }
 
         private static bool SameColumns(IReadOnlyList<string> a, IReadOnlyList<string> b) =>

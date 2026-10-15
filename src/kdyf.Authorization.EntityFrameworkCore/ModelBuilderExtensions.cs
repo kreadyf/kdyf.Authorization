@@ -129,6 +129,23 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 e.HasIndex(x => x.TokenHash).IsUnique().HasDatabaseName("UQ_PersonalAccessToken_Hash");
             });
 
+            // Schema version 4. No row means an active person: hosts that never write here are unaffected.
+            modelBuilder.Entity<UserProfile>(e =>
+            {
+                e.ToTable("UserProfile", schema);
+                e.HasKey(x => x.ObjectId).HasName("PK_UserProfile");
+                e.Property(x => x.ObjectId).HasColumnName("objectId").HasMaxLength(50).IsUnicode(false);
+                e.Property(x => x.LegacyUserId).HasColumnName("legacyUserId");
+                e.Property(x => x.Email).HasColumnName("email").HasMaxLength(256);
+                e.Property(x => x.DisplayName).HasColumnName("displayName").HasMaxLength(200);
+                e.Property(x => x.IsActive).HasColumnName("isActive");
+                e.Property(x => x.CreatedAt).HasColumnName("createdAt");
+                e.Property(x => x.LastLoginAt).HasColumnName("lastLoginAt");
+
+                // One profile per legacy user; most people have none.
+                e.HasIndex(x => x.LegacyUserId).IsUnique().HasFilter("[legacyUserId] IS NOT NULL").HasDatabaseName("UQ_UserProfile_LegacyUserId");
+            });
+
             // The audit table (auth.AuditLog) is NOT mapped here: it belongs to administration.
             // ApplyAdministrationModel(), from kdyf.Authorization.Administration, applies it.
 

@@ -22,6 +22,7 @@ namespace kdyf.Authorization.Administration
         private readonly IAuditLog _audit;
         private readonly ILogger<DirectoryAdminService<TContext>> _logger;
         private readonly IInvitationNotifier? _notifier;
+        private readonly IAccessAdminService? _access;
 
         /// <remarks>
         /// <c>notifier</c> is optional: without it the invitation e-mail is left to the directory, or the
@@ -33,8 +34,10 @@ namespace kdyf.Authorization.Administration
             IAccessDirectory group,
             IAuditLog audit,
             ILogger<DirectoryAdminService<TContext>> logger,
-            IInvitationNotifier? notifier = null)
+            IInvitationNotifier? notifier = null,
+            IAccessAdminService? access = null)
         {
+            _access = access;
             _context = context;
             _directory = directory;
             _group = group;
@@ -77,6 +80,17 @@ namespace kdyf.Authorization.Administration
             if (email.Length == 0 || !email.Contains('@'))
                 return Outcome.Error<InviteResponse>("email", "A valid e-mail is required.");
 
+            // Roles are checked BEFORE anybody is invited: a refusal must not leave a guest behind.
+            var roles = (request.Roles ?? new List<string>()).Where(r => !string.IsNullOrWhiteSpace(r)).Select(r => r.Trim()).Distinct(StringComparer.Ordinal).ToList();
+            if (roles.Count > 0)
+            {
+                if (_access is null)
+                    return Outcome.Error<InviteResponse>("roles", "Roles cannot be given with an invitation here: the access administration is not registered.");
+                var grantable = await _access.CheckGrantableAsync(roles, actor, ct);
+                if (!grantable.Validation.IsValid)
+                    return Outcome.Error<InviteResponse>("roles", Messages(grantable));
+            }
+
             try
             {
                 // Somebody already in the tenant (a member, or a guest invited before) is not invited again: a
@@ -95,6 +109,9 @@ namespace kdyf.Authorization.Administration
                         await _context.SaveChangesAsync(CancellationToken.None);
                     }
 
+                    if (await GiveRolesAsync(existing.ObjectId, roles, actor, ct) is { } refused)
+                        return refused;
+
                     var held = await HeldRolesAsync(new[] { UserRoleRow.Normalize(existing.ObjectId) }, ct);
                     return Outcome.Ok(new InviteResponse { User = ToResponse(existing, isMember: true, held), WasInvited = false });
                 }
@@ -105,14 +122,17 @@ namespace kdyf.Authorization.Administration
                 // guest exists and the invitation stands: the administrator retries, and is not invited twice.
                 await _group.GrantAsync(invitation.User.ObjectId, CancellationToken.None);
 
-                Record(actor, "directory.invited", invitation.User.ObjectId, email, new { displayName = request.DisplayName, addedToGroup = true });
+                Record(actor, "directory.invited", invitation.User.ObjectId, email, new { displayName = request.DisplayName, addedToGroup = true, roles });
                 await _context.SaveChangesAsync(CancellationToken.None);
+
+                if (await GiveRolesAsync(invitation.User.ObjectId, roles, actor, ct) is { } notGiven)
+                    return notGiven;
 
                 var sent = invitation.EmailSent || await NotifyAsync(email, request.DisplayName, invitation, ct);
 
                 return Outcome.Ok(new InviteResponse
                 {
-                    User = ToResponse(invitation.User, isMember: true, EmptyHeld),
+                    User = ToResponse(invitation.User, isMember: true, await HeldRolesAsync(new[] { UserRoleRow.Normalize(invitation.User.ObjectId) }, ct)),
                     WasInvited = true,
                     InvitationEmailSent = sent,
                     // Only when nothing went out: then it is the administrator's to pass on.
@@ -126,7 +146,31 @@ namespace kdyf.Authorization.Administration
             }
         }
 
+        private static string Messages(ValidationResult result) =>
+            string.Join(" ", result.Validation.Errors.Concat(result.Validation.Fields.Values.SelectMany(f => f.Errors)));
+
         private static readonly IReadOnlyDictionary<string, List<string>> EmptyHeld = new Dictionary<string, List<string>>();
+
+        /// <summary>
+        /// Adds <paramref name="roles"/> to what the person holds, through the access administration: its rules and its
+        /// audit entry. Null when done (or nothing to do); the refusal otherwise.
+        /// </summary>
+        private async Task<ValidationResult<InviteResponse>?> GiveRolesAsync(string objectId, List<string> roles, AdminActor actor, CancellationToken ct)
+        {
+            if (roles.Count == 0 || _access is null)
+                return null;
+
+            var current = await HeldRolesAsync(new[] { UserRoleRow.Normalize(objectId) }, ct);
+            var all = (current.TryGetValue(UserRoleRow.Normalize(objectId), out var held) ? held : new List<string>())
+                .Union(roles, StringComparer.Ordinal)
+                .ToList();
+
+            var result = await _access.SetRolesAsync(objectId, new SetRolesRequest { Roles = all }, actor, CancellationToken.None);
+            return result.Validation.IsValid
+                ? null
+                : Outcome.Error<InviteResponse>("roles",
+                    "They are in the access group, but their roles were not given: " + Messages(result));
+        }
 
         private void Record(AdminActor actor, string action, string objectId, string label, object details) =>
             _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(

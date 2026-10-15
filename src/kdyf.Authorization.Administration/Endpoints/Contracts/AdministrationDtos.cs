@@ -16,6 +16,8 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public bool AccountEnabled { get; init; }
         public bool IsMember { get; init; }
         public bool HasAccess { get; init; }
+        public bool IsSuspended { get; init; }
+        public DateTime? LastLoginAt { get; init; }
         public bool IsSelf { get; init; }
         public List<AssignedRoleDto> Roles { get; init; } = new();
         public List<string> Permissions { get; init; } = new();
@@ -62,6 +64,11 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
     {
         public string Name { get; init; } = string.Empty;
         public string? Description { get; init; }
+
+        /// <summary>Optional: the complete set of permissions, changed with the name in one transaction.</summary>
+        public List<string>? Permissions { get; init; }
+
+        public string? Version { get; init; }
     }
 
     public class SetRolePermissionsRequestDto
@@ -125,6 +132,9 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
     {
         public string Email { get; init; } = string.Empty;
         public string? DisplayName { get; init; }
+
+        /// <summary>Optional: roles to add in the same operation.</summary>
+        public List<string> Roles { get; init; } = new();
     }
 
     public class InviteResponseDto

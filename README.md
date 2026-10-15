@@ -71,6 +71,7 @@ and the message names the key.
   "ConnectionStringName": "Authorization",    // ConnectionStrings:{name}; the host may also name it in code
   "Schema": "auth",
   "RequireSchemaVersion": false,              // true once every environment is versioned
+  "LastAccessInterval": "00:15:00",           // UserProfile.lastLoginAt written at most this often; 00:00:00 turns it off
   "EntraId": { "TenantId": "…", "ClientId": "…", "Audience": "" },
   "Directory": {
     "Gate": "Group",                          // Group | Migrating | AppAssignment
@@ -88,6 +89,21 @@ Secrets never belong in `appsettings.json`. The Microsoft Graph application perm
 `User.Read.All`, plus `GroupMember.Read.All` (`GroupMember.ReadWrite.All` to administer) for a group, and
 `AppRoleAssignment.ReadWrite.All` for app assignments. That last one is powerful — it can assign any app role in the
 tenant — so give it to a separate app registration used only for Graph, with a certificate kept in a vault.
+
+## People: suspension, last access, invitations
+
+- **Suspension** (`POST/DELETE auth/users/{objectId}/suspension`): the application's own "no". A suspended person holds
+  nothing from their next request on, with a session, with a personal access token or as a simulation target; their
+  roles and their membership stay for when they are reactivated. It passes the rules of removing their roles: four
+  eyes, nothing beyond what the administrator holds, never the last administrator (a suspended one does not count).
+- **Last access**: `UserProfile.lastLoginAt`, written when a person's permissions are resolved, at most once per
+  `LastAccessInterval`. A failure to write it never denies anybody.
+- **Invitations with roles**: `Roles` on the invitation, checked before anybody is invited and added to what the
+  person already holds, never replacing it.
+- **A role in one go**: `PUT auth/roles/{role}` with `Permissions` (and `Version`) changes the name, the description
+  and what it grants in one transaction and one audit entry. The version covers the name and description too.
+
+People live in `UserProfile` only when something is known about them: no row means an active person.
 
 ## Schema versions
 

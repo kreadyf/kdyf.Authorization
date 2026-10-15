@@ -151,9 +151,9 @@ public sealed class AddKdyfAuthorizationAdministrationTests
             new DbContextOptionsBuilder<AdministrationDbContext>().UseSqlServer("Server=unused").Options,
             Options.Create(new AuthorizationStoreOptions { Schema = "security" }));
 
-        foreach (var entity in new[] { typeof(AuditLogEntry), typeof(PersonalAccessToken), typeof(Role), typeof(RolePermission), typeof(UserRole), typeof(Permission) })
+        foreach (var entity in new[] { typeof(AuditLogEntry), typeof(PersonalAccessToken), typeof(Role), typeof(RolePermission), typeof(UserRole), typeof(Permission), typeof(UserProfile) })
             Assert.AreEqual("security", db.Model.FindEntityType(entity)!.GetSchema(), entity.Name);
-        Assert.AreEqual(6, db.Model.GetEntityTypes().Count());
+        Assert.AreEqual(7, db.Model.GetEntityTypes().Count());
     }
 
     /// <summary>With administration, a simulation is recorded in the audit log — whatever order the two calls came in.</summary>

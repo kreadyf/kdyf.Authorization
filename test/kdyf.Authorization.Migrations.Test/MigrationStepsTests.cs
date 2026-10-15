@@ -19,6 +19,7 @@ public sealed class MigrationStepsTests
             ["0001-tables"] = "b1c11e32d176a5c3a2f427890b762a2904afbe7edb0ea105534d342902bc3aaa",
             ["0002-rolepermission-permissioncode-index"] = "3d88b45ade845c278a534aa8bcaf26bfad79a9a8addcc36796bb23e620ff7901",
             ["0003-runtime-grants"] = "72b27cdf0ecffd982ee70efecdd437f7fc13dec152071d1825064c9374e9a273",
+            ["0004-user-profile"] = "816a61a2ca2196ed0d179fb2f291d5af7922e827e2dec295277025e9a7f661fa",
         };
 
         foreach (var step in MigrationSteps.All)

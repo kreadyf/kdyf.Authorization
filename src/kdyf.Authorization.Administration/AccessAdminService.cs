@@ -10,11 +10,13 @@ using kdyf.Authorization.Abstractions;
 using kdyf.Authorization.Authorization;
 using kdyf.Authorization.Roles;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using RoleRow = kdyf.Authorization.EntityFrameworkCore.Entities.Role;
 using PermissionRow = kdyf.Authorization.EntityFrameworkCore.Entities.Permission;
 using RolePermissionRow = kdyf.Authorization.EntityFrameworkCore.Entities.RolePermission;
 using UserRoleRow = kdyf.Authorization.EntityFrameworkCore.Entities.UserRole;
+using UserProfileRow = kdyf.Authorization.EntityFrameworkCore.Entities.UserProfile;
 
 namespace kdyf.Authorization.Administration
 {
@@ -34,6 +36,7 @@ namespace kdyf.Authorization.Administration
         private readonly IAuditLog _audit;
         private readonly IAccessChangeNotifier _notifier;
         private readonly ILogger<AccessAdminService<TContext>> _logger;
+        private readonly IMemoryCache? _memory;
 
         /// <summary>The code that means "administers access": what the lockout guard counts.</summary>
         private readonly string _administrationCode;
@@ -47,8 +50,10 @@ namespace kdyf.Authorization.Administration
             IAuditLog audit,
             IAccessChangeNotifier notifier,
             ILogger<AccessAdminService<TContext>> logger,
-            PermissionAuthorizationOptions? options = null)
+            PermissionAuthorizationOptions? options = null,
+            IMemoryCache? memory = null)
         {
+            _memory = memory;
             _context = context;
             _group = group;
             _roles = roles;
@@ -69,6 +74,7 @@ namespace kdyf.Authorization.Administration
                 var members = await _group.ListWithAccessAsync(ct);
                 var held = await HeldRolesAsync(ct);
                 var context = await RoleContextAsync(actor, held, ct);
+                var profiles = await ProfilesAsync(ct);
 
                 var memberIds = members.Select(m => UserRoleRow.Normalize(m.User.ObjectId)).ToHashSet(StringComparer.Ordinal);
 
@@ -79,10 +85,10 @@ namespace kdyf.Authorization.Administration
                     : (await _group.GetUsersAsync(outsiders, ct)).ToDictionary(a => UserRoleRow.Normalize(a.User.ObjectId), StringComparer.Ordinal);
 
                 var people = members
-                    .Select(m => ToResponse(m.User, inDirectory: true, m.AccountEnabled, isMember: true, RolesIn(held, m.User.ObjectId), actor, context))
+                    .Select(m => ToResponse(m.User, inDirectory: true, m.AccountEnabled, isMember: true, RolesIn(held, m.User.ObjectId), ProfileOf(profiles, m.User.ObjectId), actor, context))
                     .Concat(outsiders.Select(id => known.TryGetValue(id, out var account)
-                        ? ToResponse(account.User, inDirectory: true, account.AccountEnabled, isMember: false, held[id], actor, context)
-                        : ToResponse(Unknown(id), inDirectory: false, accountEnabled: false, isMember: false, held[id], actor, context)));
+                        ? ToResponse(account.User, inDirectory: true, account.AccountEnabled, isMember: false, held[id], ProfileOf(profiles, id), actor, context)
+                        : ToResponse(Unknown(id), inDirectory: false, accountEnabled: false, isMember: false, held[id], ProfileOf(profiles, id), actor, context)));
 
                 return Outcome.Ok(people
                     .OrderBy(user => user.DisplayName ?? user.Email ?? user.ObjectId, StringComparer.OrdinalIgnoreCase)
@@ -302,6 +308,103 @@ namespace kdyf.Authorization.Administration
             return Outcome.Ok(true);
         }
 
+        public Task<ValidationResult<AccessUserResponse>> SuspendAsync(string objectId, AdminActor actor, CancellationToken ct) =>
+            SetSuspendedAsync(objectId, suspended: true, actor, ct);
+
+        public Task<ValidationResult<AccessUserResponse>> ReactivateAsync(string objectId, AdminActor actor, CancellationToken ct) =>
+            SetSuspendedAsync(objectId, suspended: false, actor, ct);
+
+        private async Task<ValidationResult<AccessUserResponse>> SetSuspendedAsync(string objectId, bool suspended, AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<AccessUserResponse>("actor", refusal);
+
+            if (!Guid.TryParse(objectId, out _))
+                return Outcome.Error<AccessUserResponse>("objectId", "Not a valid Entra object id.");
+
+            if (actor.Is(objectId))
+                return Outcome.Error<AccessUserResponse>("objectId", "Nobody changes their own access. Ask another administrator.");
+
+            Person? person;
+            RoleContext context;
+            try
+            {
+                person = await ReadPersonAsync(objectId, ct);
+                if (person is null)
+                    return Outcome.Error<AccessUserResponse>("objectId", "The directory has no user with this id.");
+
+                _roles.Invalidate();
+                context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
+            }
+            catch (DirectoryException ex)
+            {
+                _logger.LogError(ex, "Access of {ObjectId} could not be read before changing it.", objectId);
+                return Outcome.Error<AccessUserResponse>("directory", ex.Message);
+            }
+
+            if (person.IsSuspended == suspended)
+                return Outcome.Ok(ToResponse(person, actor, context));
+
+            // Suspending takes away everything their roles grant: the rules of removing those roles apply. Lifting it
+            // gives it back: the rules of granting them.
+            var beyond = person.Roles.Where(value => !context.Map.IsCoveredBy(value, actor.Permissions)).OrderBy(v => v, StringComparer.Ordinal).ToList();
+            if (beyond.Count > 0)
+                return Outcome.Error<AccessUserResponse>("roles",
+                    $"They hold {string.Join(", ", beyond)}, which grants permissions you do not hold: you cannot {(suspended ? "suspend" : "reactivate")} them.");
+
+            if (suspended && person.HasAccess && Administers(context.Map, person.Roles))
+            {
+                var guard = await LeavesAnAdministratorAsync(context.Map, context.Held, except: objectId, ct);
+                if (guard is not null)
+                    return Outcome.Error<AccessUserResponse>(guard.Value.Field, guard.Value.Message);
+            }
+
+            var key = UserRoleRow.Normalize(objectId);
+            var profiles = _context.Set<UserProfileRow>();
+            var profile = await profiles.FirstOrDefaultAsync(p => p.ObjectId == key, CancellationToken.None);
+            if (profile is null)
+            {
+                profile = new UserProfileRow { ObjectId = key, CreatedAt = DateTime.UtcNow };
+                profiles.Add(profile);
+            }
+            profile.IsActive = !suspended;
+            profile.Email ??= person.User.Email?.Trim().ToLowerInvariant();
+            profile.DisplayName ??= person.User.DisplayName;
+
+            var details = JsonSerializer.Serialize(new { roles = person.Roles.OrderBy(v => v, StringComparer.Ordinal) });
+            _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
+                suspended ? "access.suspended" : "access.reactivated", "user", key, person.User.Label, details));
+            await SaveAuditedAsync(actor, $"the suspension of {person.User.Label} ({key})", suspended ? "suspended" : "reactivated");
+
+            // At once on this instance (their permissions, and their answer as a simulation target); elsewhere within
+            // CacheDuration.
+            _cache.Invalidate(new UserIdentity(key, null));
+            if (_memory is not null)
+                MembershipSimulationTargetResolver.Forget(_memory, person.User.Email);
+            _logger.LogInformation("{Actor} {Change} {Person} ({ObjectId}).", actor.Identity.Email, suspended ? "suspended" : "reactivated", person.User.Label, key);
+
+            return Outcome.Ok(ToResponse(person with { IsSuspended = suspended }, actor, context));
+        }
+
+        public async Task<ValidationResult<bool>> CheckGrantableAsync(IReadOnlyCollection<string> roles, AdminActor actor, CancellationToken ct)
+        {
+            if (Refuse(actor) is { } refusal)
+                return Outcome.Error<bool>("actor", refusal);
+
+            _roles.Invalidate();
+            var map = await _roles.GetAsync(ct);
+            var requested = roles.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).Distinct(StringComparer.Ordinal).ToList();
+
+            var missing = requested.Where(value => !map.Exists(value)).ToList();
+            if (missing.Count > 0)
+                return Outcome.Error<bool>("roles", $"There is no role {string.Join(", ", missing)}.");
+
+            var beyond = requested.Where(value => !map.IsCoveredBy(value, actor.Permissions)).ToList();
+            return beyond.Count > 0
+                ? Outcome.Error<bool>("roles", $"You cannot grant {string.Join(", ", beyond)}: it grants permissions you do not hold.")
+                : Outcome.Ok(true);
+        }
+
         // ── Roles ────────────────────────────────────────────────────────────────
 
         public async Task<ValidationResult<List<RoleResponse>>> ListRolesAsync(AdminActor actor, CancellationToken ct)
@@ -373,6 +476,9 @@ namespace kdyf.Authorization.Administration
             if (description?.Length > 500)
                 return Outcome.Error<RoleResponse>("description", "At most 500 characters.");
 
+            if (request.Permissions is not null || !string.IsNullOrWhiteSpace(request.Version))
+                return await UpdateRoleAtomicallyAsync(roleValue, name, description, request, actor, ct);
+
             var role = await _context.Set<RoleRow>().FirstOrDefaultAsync(r => r.RoleValue == roleValue, ct);
             if (role is null)
                 return Outcome.Error<RoleResponse>("roleValue", $"There is no role '{roleValue}'.");
@@ -440,51 +546,13 @@ namespace kdyf.Authorization.Administration
             if (Refuse(actor) is { } refusal)
                 return Outcome.Error<RoleResponse>("actor", refusal);
 
-            var requested = Codes(request?.Permissions);
+            var plan = await PlanPermissionsAsync(roleValue, Codes(request?.Permissions), request?.Version, actor, ct);
+            if (plan.Error is { } error)
+                return Outcome.Error<RoleResponse>(error.Field, error.Message);
 
-            var undeclared = requested.Where(code => _declared.Find(code) is null).ToList();
-            if (undeclared.Count > 0)
-                return Outcome.Error<RoleResponse>("permissions",
-                    $"These permissions do not exist: {string.Join(", ", undeclared)}. See GET /permissions.");
-
-            _roles.Invalidate();
-            var context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
-
-            if (!context.Map.Exists(roleValue))
-                return Outcome.Error<RoleResponse>("roleValue", $"There is no role '{roleValue}'.");
-
-            var currentGrants = context.Map.GrantsOf(roleValue);
-            if (!string.IsNullOrWhiteSpace(request?.Version) && request.Version != VersionOf(currentGrants))
-                return Outcome.Error<RoleResponse>("version",
-                    "Somebody changed this role since you read it. Reload it and apply your change again.");
-
-            // Four eyes: changing what your own role grants is changing your own access.
-            if (context.ActorRoles.Contains(roleValue))
-                return Outcome.Error<RoleResponse>("roleValue",
-                    "You hold this role: what it grants must be changed by another administrator.");
-
-            var added = requested.Where(code => !currentGrants.Contains(code)).ToList();
-            var removed = currentGrants.Where(code => !requested.Contains(code)).OrderBy(c => c, StringComparer.Ordinal).ToList();
-
-            if (CheckGrants(added, removed, actor) is { } beyond)
-                return Outcome.Error<RoleResponse>("permissions", beyond);
-
-            if (await MissingFromCatalogAsync(added, ct) is { } notInCatalog)
-                return Outcome.Error<RoleResponse>("permissions", notInCatalog);
-
+            var (context, added, removed, changed) = (plan.Context!, plan.Added, plan.Removed, plan.Changed!);
             if (added.Count == 0 && removed.Count == 0)
                 return Outcome.Ok(ToRoleResponse(roleValue, context, actor));
-
-            var changed = context.Map.With(roleValue, requested);
-
-            // The lockout guard: editing a role can take the administration permission away from everybody
-            // who holds it at once.
-            if (removed.Count > 0)
-            {
-                var guard = await LeavesAnAdministratorAsync(changed, context.Held, except: null, ct);
-                if (guard is not null)
-                    return Outcome.Error<RoleResponse>(guard.Value.Field, guard.Value.Message);
-            }
 
             var details = JsonSerializer.Serialize(new { added, removed });
 
@@ -508,6 +576,106 @@ namespace kdyf.Authorization.Administration
             _logger.LogInformation("{Actor} changed what {Role} grants: {Details}.", actor.Identity.Email, roleValue, details);
 
             return Outcome.Ok(ToRoleResponse(roleValue, context with { Map = changed }, actor));
+        }
+
+        /// <summary>The outcome of checking a new set of permissions for a role, before anything is written.</summary>
+        private sealed record PermissionPlan(
+            (string Field, string Message)? Error, RoleContext? Context, List<string> Added, List<string> Removed, RolePermissionMap? Changed)
+        {
+            public static PermissionPlan Refused(string field, string message) => new((field, message), null, new(), new(), null);
+        }
+
+        /// <summary>
+        /// Every rule a change of what a role grants passes: the codes are declared and in the catalog, the role exists
+        /// and is the version the caller read, the caller does not hold it (four eyes), grants and removes nothing
+        /// beyond what they hold, and nobody is left unable to administer.
+        /// </summary>
+        private async Task<PermissionPlan> PlanPermissionsAsync(string roleValue, List<string> requested, string? version, AdminActor actor, CancellationToken ct)
+        {
+            var undeclared = requested.Where(code => _declared.Find(code) is null).ToList();
+            if (undeclared.Count > 0)
+                return PermissionPlan.Refused("permissions", $"These permissions do not exist: {string.Join(", ", undeclared)}. See GET /permissions.");
+
+            _roles.Invalidate();
+            var context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
+
+            if (!context.Map.Exists(roleValue))
+                return PermissionPlan.Refused("roleValue", $"There is no role '{roleValue}'.");
+
+            var currentGrants = context.Map.GrantsOf(roleValue);
+            if (!string.IsNullOrWhiteSpace(version) && version != VersionOf(roleValue, context))
+                return PermissionPlan.Refused("version", "Somebody changed this role since you read it. Reload it and apply your change again.");
+
+            var added = requested.Where(code => !currentGrants.Contains(code)).ToList();
+            var removed = currentGrants.Where(code => !requested.Contains(code)).OrderBy(c => c, StringComparer.Ordinal).ToList();
+            if (added.Count == 0 && removed.Count == 0)
+                return new PermissionPlan(null, context, added, removed, context.Map);
+
+            // Four eyes: changing what your own role grants is changing your own access.
+            if (context.ActorRoles.Contains(roleValue))
+                return PermissionPlan.Refused("roleValue", "You hold this role: what it grants must be changed by another administrator.");
+
+            if (CheckGrants(added, removed, actor) is { } beyond)
+                return PermissionPlan.Refused("permissions", beyond);
+
+            if (await MissingFromCatalogAsync(added, ct) is { } notInCatalog)
+                return PermissionPlan.Refused("permissions", notInCatalog);
+
+            var changed = context.Map.With(roleValue, requested);
+
+            // The lockout guard: editing a role can take the administration permission away from everybody who holds it.
+            if (removed.Count > 0 && await LeavesAnAdministratorAsync(changed, context.Held, except: null, ct) is { } guard)
+                return PermissionPlan.Refused(guard.Field, guard.Message);
+
+            return new PermissionPlan(null, context, added, removed, changed);
+        }
+
+        /// <summary>Name, description and permissions in one transaction and one audit entry, or nothing.</summary>
+        private async Task<ValidationResult<RoleResponse>> UpdateRoleAtomicallyAsync(
+            string roleValue, string name, string? description, UpdateRoleRequest request, AdminActor actor, CancellationToken ct)
+        {
+            var role = await _context.Set<RoleRow>().FirstOrDefaultAsync(r => r.RoleValue == roleValue, ct);
+            if (role is null)
+                return Outcome.Error<RoleResponse>("roleValue", $"There is no role '{roleValue}'.");
+
+            var current = (await _roles.GetAsync(ct)).GrantsOf(roleValue);
+            var requested = request.Permissions is null ? current.ToList() : Codes(request.Permissions);
+            var plan = await PlanPermissionsAsync(roleValue, requested, request.Version, actor, ct);
+            if (plan.Error is { } error)
+                return Outcome.Error<RoleResponse>(error.Field, error.Message);
+
+            var (context, added, removed) = (plan.Context!, plan.Added, plan.Removed);
+            var renamed = role.Name != name || role.Description != description;
+            if (!renamed && added.Count == 0 && removed.Count == 0)
+                return Outcome.Ok(ToRoleResponse(roleValue, context, actor));
+
+            var details = JsonSerializer.Serialize(new
+            {
+                name = new { from = role.Name, to = name },
+                description = new { from = role.Description, to = description },
+                permissions = new { added, removed }
+            });
+
+            await using (var transaction = await _context.Database.BeginTransactionAsync(ct))
+            {
+                role.Name = name;
+                role.Description = description;
+
+                var rows = _context.Set<RolePermissionRow>();
+                rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue && removed.Contains(r.PermissionCode)).ToListAsync(ct));
+                rows.AddRange(added.Select(code => new RolePermissionRow { RoleValue = roleValue, PermissionCode = code }));
+
+                _audit.Record(AuditActor.From(actor.Identity), new AuditEntry("role.updated", "role", roleValue, name, details));
+                await _context.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+
+            _roles.Invalidate();
+            if (added.Count > 0 || removed.Count > 0)
+                _cache.InvalidateAll();
+            _logger.LogInformation("{Actor} updated the role {Role}: {Details}.", actor.Identity.Email, roleValue, details);
+
+            return await GetRoleAsync(roleValue, actor, ct);
         }
 
         // ── What is left behind ──────────────────────────────────────────────────
@@ -733,8 +901,13 @@ namespace kdyf.Authorization.Administration
             if (Administers(map, Array.Empty<string>()))
                 return null;
 
+            // A suspended administrator administers nothing.
+            var suspended = (await _context.Set<UserProfileRow>().AsNoTracking()
+                    .Where(p => !p.IsActive).Select(p => p.ObjectId).ToListAsync(ct))
+                .ToHashSet(StringComparer.Ordinal);
+
             var candidates = held
-                .Where(h => h.Key != exceptKey && Administers(map, h.Value))
+                .Where(h => h.Key != exceptKey && !suspended.Contains(h.Key) && Administers(map, h.Value))
                 .Select(h => h.Key)
                 .ToList();
 
@@ -798,9 +971,11 @@ namespace kdyf.Authorization.Administration
         // ── Reading ──────────────────────────────────────────────────────────────
 
         /// <summary>A person as the administration sees them: Entra's half and the database's half.</summary>
-        private sealed record Person(DirectoryUser User, bool InDirectory, bool AccountEnabled, bool IsMember, IReadOnlySet<string> Roles)
+        private sealed record Person(
+            DirectoryUser User, bool InDirectory, bool AccountEnabled, bool IsMember, IReadOnlySet<string> Roles,
+            bool IsSuspended = false, DateTime? LastLoginAt = null)
         {
-            public bool HasAccess => InDirectory && AccountEnabled && IsMember;
+            public bool HasAccess => InDirectory && AccountEnabled && IsMember && !IsSuspended;
         }
 
         /// <summary>The person, or null when neither Entra nor the database knows them.</summary>
@@ -815,14 +990,15 @@ namespace kdyf.Authorization.Administration
             var roles = (await _context.Set<UserRoleRow>().AsNoTracking()
                     .Where(r => r.ObjectId == key).Select(r => r.RoleValue).ToListAsync(ct))
                 .ToHashSet(StringComparer.Ordinal);
+            var profile = await _context.Set<UserProfileRow>().AsNoTracking().FirstOrDefaultAsync(p => p.ObjectId == key, ct);
 
             await Task.WhenAll(accountCall, memberCall);
 
             var account = await accountCall;
             if (account is null)
-                return roles.Count == 0 ? null : new Person(Unknown(key), false, false, false, roles);
+                return roles.Count == 0 ? null : new Person(Unknown(key), false, false, false, roles, profile is { IsActive: false }, profile?.LastLoginAt);
 
-            return new Person(account.User, true, account.AccountEnabled, await memberCall, roles);
+            return new Person(account.User, true, account.AccountEnabled, await memberCall, roles, profile is { IsActive: false }, profile?.LastLoginAt);
         }
 
         /// <summary>Who holds which role: object id → role values.</summary>
@@ -836,6 +1012,13 @@ namespace kdyf.Authorization.Administration
                 .GroupBy(r => r.ObjectId, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => (IReadOnlySet<string>)g.Select(r => r.RoleValue).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
         }
+
+        /// <summary>The profiles: object id → profile. Most people have none (no row means active).</summary>
+        private async Task<IReadOnlyDictionary<string, UserProfileRow>> ProfilesAsync(CancellationToken ct) =>
+            await _context.Set<UserProfileRow>().AsNoTracking().ToDictionaryAsync(p => p.ObjectId, StringComparer.Ordinal, ct);
+
+        private static UserProfileRow? ProfileOf(IReadOnlyDictionary<string, UserProfileRow> profiles, string objectId) =>
+            profiles.TryGetValue(UserRoleRow.Normalize(objectId), out var profile) ? profile : null;
 
         private static IReadOnlySet<string> RolesIn(IReadOnlyDictionary<string, IReadOnlySet<string>> held, string objectId) =>
             held.TryGetValue(UserRoleRow.Normalize(objectId), out var roles) ? roles : new HashSet<string>(StringComparer.Ordinal);
@@ -880,18 +1063,24 @@ namespace kdyf.Authorization.Administration
                 Assignable = covered,
                 Editable = actor.IsPerson && !actor.IsSimulating && covered && !context.ActorRoles.Contains(value),
                 UserCount = context.Held.Count(h => h.Value.Contains(value)),
-                Version = VersionOf(grants)
+                Version = VersionOf(value, context)
             };
         }
 
         private AccessUserResponse ToResponse(Person person, AdminActor actor, RoleContext context) =>
-            ToResponse(person.User, person.InDirectory, person.AccountEnabled, person.IsMember, person.Roles, actor, context);
+            ToResponse(person.User, person.InDirectory, person.AccountEnabled, person.IsMember, person.Roles,
+                person.IsSuspended, person.LastLoginAt, actor, context);
 
         private AccessUserResponse ToResponse(
             DirectoryUser user, bool inDirectory, bool accountEnabled, bool isMember, IReadOnlySet<string> roles,
-            AdminActor actor, RoleContext context)
+            UserProfileRow? profile, AdminActor actor, RoleContext context) =>
+            ToResponse(user, inDirectory, accountEnabled, isMember, roles, profile is { IsActive: false }, profile?.LastLoginAt, actor, context);
+
+        private AccessUserResponse ToResponse(
+            DirectoryUser user, bool inDirectory, bool accountEnabled, bool isMember, IReadOnlySet<string> roles,
+            bool isSuspended, DateTime? lastLoginAt, AdminActor actor, RoleContext context)
         {
-            var hasAccess = inDirectory && accountEnabled && isMember;
+            var hasAccess = inDirectory && accountEnabled && isMember && !isSuspended;
             return new AccessUserResponse
             {
                 ObjectId = UserRoleRow.Normalize(user.ObjectId),
@@ -903,6 +1092,8 @@ namespace kdyf.Authorization.Administration
                 AccountEnabled = accountEnabled,
                 IsMember = isMember,
                 HasAccess = hasAccess,
+                IsSuspended = isSuspended,
+                LastLoginAt = lastLoginAt,
                 IsSelf = actor.Is(user.ObjectId),
                 Roles = roles
                     .OrderBy(value => value, StringComparer.Ordinal)
@@ -920,10 +1111,14 @@ namespace kdyf.Authorization.Administration
             };
         }
 
-        /// <summary>A short fingerprint of a permission set, for optimistic concurrency.</summary>
-        private static string VersionOf(IReadOnlySet<string> grants)
+        /// <summary>
+        /// A short fingerprint of a role as read (name, description and what it grants), for optimistic concurrency.
+        /// </summary>
+        private static string VersionOf(string roleValue, RoleContext context)
         {
-            var text = string.Join("\n", grants.OrderBy(c => c, StringComparer.Ordinal));
+            context.Rows.TryGetValue(roleValue, out var row);
+            var text = string.Join("\n", new[] { row?.Name ?? roleValue, row?.Description ?? string.Empty }
+                .Concat(context.Map.GrantsOf(roleValue).OrderBy(c => c, StringComparer.Ordinal)));
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
         }
 

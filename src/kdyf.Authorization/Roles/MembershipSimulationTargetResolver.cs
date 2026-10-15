@@ -5,7 +5,8 @@ namespace kdyf.Authorization.Roles
 {
     /// <summary>
     /// <see cref="ISimulationTargetResolver"/> of the access model: the target is somebody the directory knows by
-    /// that e-mail, with an enabled account, in the access group, and holding at least something.
+    /// that e-mail, with an enabled account, in the access group, not suspended by the application, and holding at
+    /// least something.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -29,19 +30,23 @@ namespace kdyf.Authorization.Roles
         private readonly RolePermissionMapProvider _roles;
         private readonly IMemoryCache? _cache;
         private readonly PermissionAuthorizationOptions? _options;
+        private readonly IUserSuspensionSource? _suspensions;
 
         /// <param name="membership">The directory.</param>
         /// <param name="userRoles">Who holds which role.</param>
         /// <param name="roles">What each role grants.</param>
         /// <param name="cache">Where answers are kept; without it every call resolves again.</param>
         /// <param name="options">The cache durations.</param>
+        /// <param name="suspensions">Who the application suspended: nobody simulates them.</param>
         public MembershipSimulationTargetResolver(
             IMembershipSource membership,
             IUserRoleSource userRoles,
             RolePermissionMapProvider roles,
             IMemoryCache? cache = null,
-            PermissionAuthorizationOptions? options = null)
+            PermissionAuthorizationOptions? options = null,
+            IUserSuspensionSource? suspensions = null)
         {
+            _suspensions = suspensions;
             _membership = membership;
             _userRoles = userRoles;
             _roles = roles;
@@ -93,11 +98,25 @@ namespace kdyf.Authorization.Roles
             if (membership is not { HasAccess: true })
                 return null;
 
+            if (_suspensions is not null && await _suspensions.IsSuspendedAsync(person.SubjectId, cancellationToken))
+                return null;
+
             var held = await _userRoles.GetRolesAsync(person.SubjectId, cancellationToken);
             if ((await _roles.GetAsync(cancellationToken)).ForMember(held).Count == 0)
                 return null;
 
             return new SimulationTarget(person.Email, person.SubjectId, person.DisplayName);
+        }
+
+        /// <summary>
+        /// Forgets the cached answer for <paramref name="email"/>: after suspending or reactivating somebody, so the
+        /// next simulation of them is decided again.
+        /// </summary>
+        public static void Forget(IMemoryCache cache, string? email)
+        {
+            ArgumentNullException.ThrowIfNull(cache);
+            if (!string.IsNullOrWhiteSpace(email))
+                cache.Remove(KeyPrefix + email.Trim().ToLowerInvariant());
         }
 
         /// <summary>A cached answer — a refusal included, which is why it is wrapped.</summary>

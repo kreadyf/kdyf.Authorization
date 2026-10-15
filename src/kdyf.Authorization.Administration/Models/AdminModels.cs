@@ -30,8 +30,17 @@ namespace kdyf.Authorization.Administration.Models
         /// <summary>In the access group, directly or through a nested group. Outside it they hold nothing.</summary>
         public bool IsMember { get; set; }
 
-        /// <summary>May use the application: an enabled account in the access group.</summary>
+        /// <summary>May use the application: an enabled account in the access group, not suspended.</summary>
         public bool HasAccess { get; set; }
+
+        /// <summary>
+        /// Suspended by the application: they hold nothing (sessions, tokens, simulation), whatever the directory and
+        /// their roles say. Their roles stay, for when they are reactivated.
+        /// </summary>
+        public bool IsSuspended { get; set; }
+
+        /// <summary>The last time they were seen (a sign-in or a token), to the minutes of the recording interval.</summary>
+        public DateTime? LastLoginAt { get; set; }
 
         /// <summary>The caller themselves. The screen should not offer to change it: nobody changes their own access.</summary>
         public bool IsSelf { get; set; }
@@ -114,7 +123,7 @@ namespace kdyf.Authorization.Administration.Models
         public int UserCount { get; set; }
 
         /// <summary>
-        /// What its permissions looked like when read. Send it back in <see cref="SetRolePermissionsRequest.Version"/>
+        /// What the role (its name, description and permissions) looked like when read. Send it back in <see cref="SetRolePermissionsRequest.Version"/>
         /// to be told, instead of silently overwriting, that somebody changed the role in the meantime.
         /// </summary>
         public string Version { get; set; } = string.Empty;
@@ -138,12 +147,24 @@ namespace kdyf.Authorization.Administration.Models
         public List<string> Permissions { get; set; } = new();
     }
 
-    /// <summary>A role's name and description. What it grants is <see cref="SetRolePermissionsRequest"/>.</summary>
+    /// <summary>
+    /// A role's name and description and, optionally, what it grants: all of it in one transaction and one audit entry,
+    /// or nothing.
+    /// </summary>
     public class UpdateRoleRequest
     {
         public string Name { get; set; } = string.Empty;
 
         public string? Description { get; set; }
+
+        /// <summary>
+        /// The complete set of permissions it should grant, REPLACING the current ones, with the rules of
+        /// <see cref="SetRolePermissionsRequest"/>. Null leaves what it grants as it is.
+        /// </summary>
+        public List<string>? Permissions { get; set; }
+
+        /// <summary>The <see cref="RoleResponse.Version"/> the caller read; when it no longer matches, nothing is changed.</summary>
+        public string? Version { get; set; }
     }
 
     /// <summary>The complete set of permissions a role should grant. It REPLACES the current ones.</summary>

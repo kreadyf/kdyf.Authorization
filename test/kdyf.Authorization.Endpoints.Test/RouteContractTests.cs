@@ -25,6 +25,8 @@ public sealed class RouteContractTests
         ("GET", "/auth/users/{objectId:guid}", Admin),
         ("PUT", "/auth/users/{objectId:guid}/roles", Admin),
         ("DELETE", "/auth/users/{objectId:guid}", Admin),
+        ("POST", "/auth/users/{objectId:guid}/suspension", Admin),
+        ("DELETE", "/auth/users/{objectId:guid}/suspension", Admin),
         ("GET", "/auth/roles", Admin),
         ("POST", "/auth/roles", Admin),
         ("GET", "/auth/roles/orphans", Admin),

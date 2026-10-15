@@ -28,6 +28,12 @@ namespace kdyf.Authorization.Administration.Models
     {
         public string Email { get; set; } = string.Empty;
         public string? DisplayName { get; set; }
+
+        /// <summary>
+        /// Roles to give them in the same operation. ADDED to any they already hold, never replacing them. Checked
+        /// before anybody is invited: a role the caller cannot grant refuses the whole invitation.
+        /// </summary>
+        public List<string> Roles { get; set; } = new();
     }
 
     public class InviteResponse

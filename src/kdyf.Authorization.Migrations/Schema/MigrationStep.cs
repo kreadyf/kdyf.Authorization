@@ -163,6 +163,31 @@ namespace kdyf.Authorization.Migrations.Schema
             """;
     }
 
+    /// <summary>
+    /// Version 4: the profile of each person the application knows (the legacy import fills it; suspension and the last
+    /// access live here), with the runtime role's grants on it. No row means an active person.
+    /// </summary>
+    internal sealed class UserProfileStep : MigrationStep
+    {
+        public override int Version => 4;
+        public override string Id => "0004-user-profile";
+        public override string Description => "UserProfile: suspension, last access and the legacy user id.";
+
+        protected override string Template => """
+            CREATE TABLE [{schema}].[UserProfile] (
+                objectId     VARCHAR(50)   NOT NULL CONSTRAINT PK_UserProfile PRIMARY KEY,
+                legacyUserId INT           NULL,
+                email        NVARCHAR(256) NULL,
+                displayName  NVARCHAR(200) NULL,
+                isActive     BIT           NOT NULL CONSTRAINT DF_UserProfile_IsActive DEFAULT 1,
+                createdAt    DATETIME2     NOT NULL CONSTRAINT DF_UserProfile_CreatedAt DEFAULT SYSUTCDATETIME(),
+                lastLoginAt  DATETIME2     NULL
+            );
+            CREATE UNIQUE NONCLUSTERED INDEX UQ_UserProfile_LegacyUserId ON [{schema}].[UserProfile](legacyUserId) WHERE legacyUserId IS NOT NULL;
+            GRANT SELECT, INSERT, UPDATE, DELETE ON [{schema}].[UserProfile] TO [{role}];
+            """;
+    }
+
     /// <summary>The steps, in order. The last one is the version the packages require.</summary>
     internal static class MigrationSteps
     {
@@ -172,6 +197,7 @@ namespace kdyf.Authorization.Migrations.Schema
             new TablesStep(),
             new RolePermissionIndexStep(),
             new RuntimeGrantsStep(),
+            new UserProfileStep(),
         };
     }
 }

@@ -136,8 +136,10 @@ public sealed class AddKdyfAuthorizationTests
         Assert.AreEqual("security", db.Model.FindEntityType(typeof(Role))!.GetSchema());
         Assert.AreEqual("security", db.Model.FindEntityType(typeof(UserRole))!.GetSchema());
         Assert.AreEqual("security", db.Model.FindEntityType(typeof(Permission))!.GetSchema());
-        Assert.AreEqual(5, db.Model.GetEntityTypes().Count(),
-            "the permission catalog, roles, what each grants, who holds which and tokens: no audit log (administration's) and no user table — people live in Entra");
+        Assert.AreEqual("security", db.Model.FindEntityType(typeof(UserProfile))!.GetSchema());
+        Assert.AreEqual(6, db.Model.GetEntityTypes().Count(),
+            "the permission catalog, roles, what each grants, who holds which, tokens and the profiles (suspension, last access): "
+            + "no audit log (administration's); who people are lives in Entra");
     }
 
     /// <summary>The context reaches the database through the provider the host chose, with the configured connection string.</summary>
@@ -368,6 +370,7 @@ public sealed class AddKdyfAuthorizationTests
             typeof(IPermissionStore), typeof(IPermissionCatalog), typeof(IPatStore),
             typeof(RolePermissionMapProvider), typeof(IRolePermissionSource), typeof(IUserRoleSource), typeof(DeclaredPermissions),
             typeof(IMembershipSource), typeof(IUserContext), typeof(AuthorizationDbContext), typeof(PolicyReport),
+            typeof(IUserSuspensionSource), typeof(IUserActivityRecorder),
         })
             Assert.IsTrue(services.Any(d => d.ServiceType == type), $"{type.Name} is not registered.");
 

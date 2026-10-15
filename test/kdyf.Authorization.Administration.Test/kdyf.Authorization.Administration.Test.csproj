@@ -19,6 +19,7 @@
     <!-- A real in-memory host for the endpoints: authentication, policies and routes as an
          application wires them, not the delegates called by hand. -->
     <PackageReference Include="Microsoft.AspNetCore.TestHost" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
   <ItemGroup>

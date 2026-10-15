@@ -4,7 +4,7 @@ namespace kdyf.Authorization.Migrations.Schema
     public sealed record ColumnSpec(string Name, string Type, bool Nullable = false, bool Identity = false, string? Collation = null);
 
     /// <summary>An index the schema must have; <see cref="Name"/> is what the steps create.</summary>
-    public sealed record IndexSpec(string Name, IReadOnlyList<string> Columns, bool Unique = false);
+    public sealed record IndexSpec(string Name, IReadOnlyList<string> Columns, bool Unique = false, string? Filter = null);
 
     /// <summary>A foreign key the schema must have, with its action on delete.</summary>
     public sealed record ForeignKeySpec(string Name, IReadOnlyList<string> Columns, string ReferencedTable, IReadOnlyList<string> ReferencedColumns, string OnDelete);
@@ -133,8 +133,27 @@ namespace kdyf.Authorization.Migrations.Schema
                         new IndexSpec("IX_AuditLog_OccurredAt", new[] { "occurredAt" }),
                         new IndexSpec("IX_AuditLog_ActorObjectId", new[] { "actorObjectId" }),
                     }),
-            };
+            }.Concat(version >= 4 ? new[] { UserProfile } : Array.Empty<TableSpec>()).ToArray();
         }
+
+        /// <summary>
+        /// Version 4: one row per person the application knows, keyed by their Entra object id. No row means an active
+        /// person, so a host that never writes here behaves as before.
+        /// </summary>
+        private static TableSpec UserProfile { get; } = new("UserProfile",
+            new[]
+            {
+                new ColumnSpec("objectId", "varchar(50)"),
+                new ColumnSpec("legacyUserId", "int", Nullable: true),
+                new ColumnSpec("email", "nvarchar(256)", Nullable: true),
+                new ColumnSpec("displayName", "nvarchar(200)", Nullable: true),
+                new ColumnSpec("isActive", "bit"),
+                new ColumnSpec("createdAt", "datetime2(7)"),
+                new ColumnSpec("lastLoginAt", "datetime2(7)", Nullable: true),
+            },
+            "PK_UserProfile", new[] { "objectId" },
+            Array.Empty<ForeignKeySpec>(),
+            new[] { new IndexSpec("UQ_UserProfile_LegacyUserId", new[] { "legacyUserId" }, Unique: true, Filter: "legacyUserId IS NOT NULL") });
 
         /// <summary>
         /// What the runtime role may do on each table at <paramref name="version"/>. The history tables are granted
@@ -160,6 +179,8 @@ namespace kdyf.Authorization.Migrations.Schema
                 grants["PersonalAccessToken"] = all;
                 grants["AuditLog"] = new[] { "SELECT", "INSERT" };
             }
+            if (version >= 4)
+                grants["UserProfile"] = new[] { "SELECT", "INSERT", "UPDATE", "DELETE" };
             return grants;
         }
 
