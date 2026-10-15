@@ -598,6 +598,37 @@ public sealed class AddKdyfAuthorizationTests
         Assert.AreEqual("TestSimulation", simulation.PolicyName, "the door of the simulation endpoints");
     }
 
+    /// <summary>
+    /// A host's own claims transformation (kdyf.admin's directory roles) is kept, and runs on the principal the simulation
+    /// produced: registered beside it, one of the two would silently win.
+    /// </summary>
+    [TestMethod]
+    public async Task A_hosts_claims_transformation_runs_after_the_simulation()
+    {
+        var services = new ServiceCollection().AddLogging().AddHttpContextAccessor();
+        services.AddKdyfAuthorization(Configuration(With()), auth => Providers(auth.Declarations(typeof(AddKdyfAuthorizationTests).Assembly)));
+        services.AddKdyfAuthorizationSimulation<MarkingTransformation>(new authtest.SimulationPolicy());
+        using var provider = services.BuildServiceProvider();
+        provider.GetRequiredService<Microsoft.AspNetCore.Http.IHttpContextAccessor>().HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+
+        var transformation = provider.GetRequiredService<Microsoft.AspNetCore.Authentication.IClaimsTransformation>();
+        var principal = await transformation.TransformAsync(new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+            new[] { new System.Security.Claims.Claim("oid", "0a000000-0000-0000-0000-00000000000a") }, "test")));
+
+        Assert.AreEqual("SimulationClaimsTransformation", transformation.GetType().Name);
+        Assert.IsTrue(principal.HasClaim("marked", "yes"), "the host's transformation ran");
+        Assert.IsNotNull(provider.GetService<UserSimulationOptions>());
+    }
+
+    private sealed class MarkingTransformation : Microsoft.AspNetCore.Authentication.IClaimsTransformation
+    {
+        public Task<System.Security.Claims.ClaimsPrincipal> TransformAsync(System.Security.Claims.ClaimsPrincipal principal)
+        {
+            ((System.Security.Claims.ClaimsIdentity)principal.Identity!).AddClaim(new System.Security.Claims.Claim("marked", "yes"));
+            return Task.FromResult(principal);
+        }
+    }
+
     /// <summary>Without a Simulation part the defaults apply: the header and the timeout clients already use.</summary>
     [TestMethod]
     public void Simulation_defaults_apply_when_the_section_says_nothing()

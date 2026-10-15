@@ -24,11 +24,19 @@ namespace kdyf.Authorization.EntityFrameworkCore
 
         private readonly TContext _db;
         private readonly IPermissionStore _permissions;
+        private readonly IServiceScopeFactory? _scopes;
 
-        public EfPatStore(TContext db, IPermissionStore permissions)
+        /// <param name="db">The request's context: only read.</param>
+        /// <param name="permissions">The owner's permissions.</param>
+        /// <param name="scopes">
+        /// Where the last use is written: a context of its own, so a request with changes pending never has them saved by
+        /// a token check. Without it, the request's context is used.
+        /// </param>
+        public EfPatStore(TContext db, IPermissionStore permissions, IServiceScopeFactory? scopes = null)
         {
             _db = db;
             _permissions = permissions;
+            _scopes = scopes;
         }
 
         public async Task<PatPrincipal?> ResolveAsync(byte[] tokenHash, CancellationToken cancellationToken = default)
@@ -73,9 +81,17 @@ namespace kdyf.Authorization.EntityFrameworkCore
 
             try
             {
-                await _db.Set<PersonalAccessToken>()
-                    .Where(t => t.PersonalAccessTokenId == patId)
-                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.LastUsedAt, now), ct);
+                // Read and saved, not ExecuteUpdate: its signature differs between EF Core 8 and 10, and these packages run
+                // on both.
+                using var scope = _scopes?.CreateScope();
+                var db = scope?.ServiceProvider.GetRequiredService<TContext>() ?? _db;
+                var token = await db.Set<PersonalAccessToken>().FirstOrDefaultAsync(t => t.PersonalAccessTokenId == patId, ct);
+                if (token is null || (token.LastUsedAt is not null && token.LastUsedAt > now - LastUsedThrottle))
+                    return;
+                token.LastUsedAt = now;
+                await db.SaveChangesAsync(ct);
+                if (scope is null)
+                    db.Entry(token).State = EntityState.Detached;
             }
             catch
             {

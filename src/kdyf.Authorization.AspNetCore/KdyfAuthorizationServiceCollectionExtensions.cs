@@ -191,6 +191,25 @@ namespace Microsoft.Extensions.DependencyInjection
         /// </remarks>
         public static IServiceCollection AddKdyfAuthorizationSimulation(this IServiceCollection services, Policy policy)
         {
+            AddSimulation(services, policy);
+            return services;
+        }
+
+        /// <summary>
+        /// As <see cref="AddKdyfAuthorizationSimulation(IServiceCollection, Policy)"/>, keeping a claims transformation the
+        /// host has (directory roles, say): it runs AFTER the swap, on the simulated principal, so the simulated session gets
+        /// the target's claims and not the administrator's. ASP.NET Core resolves one transformation: registering both would
+        /// silently drop one.
+        /// </summary>
+        public static IServiceCollection AddKdyfAuthorizationSimulation<TClaimsTransformation>(this IServiceCollection services, Policy policy)
+            where TClaimsTransformation : class, Microsoft.AspNetCore.Authentication.IClaimsTransformation
+        {
+            AddSimulation(services, policy).ChainAfter<TClaimsTransformation>();
+            return services;
+        }
+
+        private static UserSimulationBuilder AddSimulation(IServiceCollection services, Policy policy)
+        {
             var permission = KdyfAuthorizationBuilder.SinglePermission(policy, "simulation");
 
             if (!services.Any(d => d.ServiceType == typeof(PermissionAuthorizationOptions)))
@@ -201,7 +220,7 @@ namespace Microsoft.Extensions.DependencyInjection
             var configured = services.Select(d => d.ImplementationInstance).OfType<KdyfAuthorizationSection>().LastOrDefault()
                 ?.Section.GetSection("Simulation");
 
-            services.AddUserSimulation<MembershipSimulationTargetResolver>(options =>
+            return services.AddUserSimulation<MembershipSimulationTargetResolver>(options =>
             {
                 if (configured is not null)
                 {
@@ -219,8 +238,6 @@ namespace Microsoft.Extensions.DependencyInjection
                 // compare every "not on yourself" rule against the wrong person.
                 options.ReadOnly = true;
             });
-
-            return services;
         }
 
         /// <summary>

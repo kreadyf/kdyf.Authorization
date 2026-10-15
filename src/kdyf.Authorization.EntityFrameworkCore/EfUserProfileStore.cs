@@ -49,11 +49,17 @@ namespace kdyf.Authorization.EntityFrameworkCore
             var db = scope.ServiceProvider.GetRequiredService<TContext>();
             var profiles = db.Set<UserProfile>();
 
-            var updated = await profiles
-                .Where(p => p.ObjectId == objectId && (p.LastLoginAt == null || p.LastLoginAt < due))
-                .ExecuteUpdateAsync(s => s.SetProperty(p => p.LastLoginAt, now), cancellationToken);
-            if (updated > 0 || await profiles.AnyAsync(p => p.ObjectId == objectId, cancellationToken))
+            // Read and saved, not ExecuteUpdate: its signature differs between EF Core 8 and 10, and these packages run on both.
+            var existing = await profiles.FirstOrDefaultAsync(p => p.ObjectId == objectId, cancellationToken);
+            if (existing is not null)
+            {
+                if (existing.LastLoginAt is null || existing.LastLoginAt < due)
+                {
+                    existing.LastLoginAt = now;
+                    await db.SaveChangesAsync(cancellationToken);
+                }
                 return;
+            }
 
             // First time seen: the profile appears, active. It grants nothing; access is still the group and the roles.
             profiles.Add(new UserProfile

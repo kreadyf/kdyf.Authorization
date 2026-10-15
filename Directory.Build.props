@@ -41,6 +41,12 @@
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 
+  <!-- The tests run each target on its own EF Core line (10 on net10), while the libraries ask for 8 at least: so the net10
+       run proves the packages built against EF Core 8 on EF Core 10. -->
+  <ItemGroup Condition="$(MSBuildProjectDirectory.Contains('$([System.IO.Path]::DirectorySeparatorChar)test$([System.IO.Path]::DirectorySeparatorChar)'))">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" VersionOverride="$(AspNetCoreVersion)" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>

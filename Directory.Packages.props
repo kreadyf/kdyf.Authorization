@@ -10,6 +10,9 @@
 
   <!-- The packages tied to the framework follow the target: the last servicing release of each line. -->
   <PropertyGroup>
+    <!-- EF Core is NOT tied to the target: the libraries need 8 at least, on net8 and on net10, so a net10 host that stays
+         on EF Core 8 (kdyf.admin) is not moved to 10 by them. A host on 10 gets 10 (NuGet takes the highest). -->
+    <EntityFrameworkCoreVersion>8.0.32</EntityFrameworkCoreVersion>
     <AspNetCoreVersion Condition="'$(TargetFramework)' == 'net8.0'">8.0.32</AspNetCoreVersion>
     <AspNetCoreVersion Condition="'$(AspNetCoreVersion)' == ''">10.0.13</AspNetCoreVersion>
   </PropertyGroup>
@@ -19,8 +22,8 @@
     <PackageVersion Include="Azure.Identity" Version="1.21.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="$(AspNetCoreVersion)" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="$(AspNetCoreVersion)" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="$(AspNetCoreVersion)" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="$(AspNetCoreVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="$(EntityFrameworkCoreVersion)" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="$(EntityFrameworkCoreVersion)" />
     <PackageVersion Include="Microsoft.Identity.Web" Version="4.15.0" />
   </ItemGroup>
 
