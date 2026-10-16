@@ -12,10 +12,18 @@ namespace kdyf.Authorization.EntityFrameworkCore
     public static class AuthorizationSchema
     {
         /// <summary>
-        /// The schema version the model of this package expects: the last step of kdyf.Authorization.Migrations, which
-        /// ships with the same version. A schema at this version or newer works (steps widen, they do not break).
+        /// The schema version with the profiles (<see cref="AuthorizationStoreOptions.UserProfiles"/>): the last step of
+        /// kdyf.Authorization.Migrations, which ships with the same version.
         /// </summary>
         public const int RequiredVersion = 4;
+
+        /// <summary>The version without the profiles: the six tables the reference databases already have, indexed and granted.</summary>
+        public const int RequiredVersionWithoutProfiles = 3;
+
+        /// <summary>
+        /// The schema version the host expects. A schema at this version or newer works (steps widen, they do not break).
+        /// </summary>
+        public static int RequiredVersionFor(bool userProfiles) => userProfiles ? RequiredVersion : RequiredVersionWithoutProfiles;
     }
 
     /// <summary>
@@ -79,7 +87,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
                     options.Schema);
             else
                 _logger.LogInformation("The schema {Schema} is at version {Version} (required {Required}).",
-                    options.Schema, state.Version, AuthorizationSchema.RequiredVersion);
+                    options.Schema, state.Version, AuthorizationSchema.RequiredVersionFor(options.UserProfiles));
         }
 
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -99,13 +107,15 @@ namespace kdyf.Authorization.EntityFrameworkCore
                     return $"The schema '{schema}' has no version, and RequireSchemaVersion is on. Adopt or migrate it with 'kdyf-auth adopt' or 'kdyf-auth apply'.";
                 // Without a version the host only warns, unless the tables these packages need are not there: every
                 // request would fail on them, so it is said now.
-                if (!state.HasUserProfile)
-                    return $"The schema '{schema}' has no version and no UserProfile table, which these packages need (schema version 4). "
+                if (options.UserProfiles && !state.HasUserProfile)
+                    return $"The schema '{schema}' has no version and no UserProfile table, which UserProfiles needs (schema version 4). "
                            + "Run 'kdyf-auth adopt' (or 'apply'): it stamps the existing tables and adds the missing ones.";
                 return null;
             }
-            if (state.Version < AuthorizationSchema.RequiredVersion)
-                return $"The schema '{schema}' is at version {state.Version}; these packages require {AuthorizationSchema.RequiredVersion}. "
+            var required = AuthorizationSchema.RequiredVersionFor(options.UserProfiles);
+            if (state.Version < required)
+                return $"The schema '{schema}' is at version {state.Version}; this configuration requires {required}"
+                       + (options.UserProfiles ? " (UserProfiles is on). " : ". ")
                        + "Run 'kdyf-auth apply' before deploying this version.";
             return null;
         }

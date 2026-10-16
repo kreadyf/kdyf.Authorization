@@ -152,7 +152,7 @@ public sealed class AccessInvariantTests
         Assert.IsTrue(Blockers(report).Any(i => i.Code == "token-gain" && i.Detail.Contains("Orders.Write")));
     }
 
-    /// <summary>WIMBA's tokens passed the gate on their own: their owner outside the new gate makes them stop. Counted.</summary>
+    /// <summary>A group-gated host's tokens passed the gate on their own: their owner outside the new gate makes them stop. Counted.</summary>
     [TestMethod]
     public void Tokens_that_stop_validating_are_counted_and_need_their_count_approved()
     {

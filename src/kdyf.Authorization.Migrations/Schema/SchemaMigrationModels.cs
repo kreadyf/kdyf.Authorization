@@ -27,6 +27,13 @@ namespace kdyf.Authorization.Migrations.Schema
         /// </summary>
         public string? AppUser { get; set; }
 
+        /// <summary>
+        /// Keep a profile per person (<c>UserProfile</c>, schema version 4). Off: the schema stops at version 3, the six
+        /// tables of a reference database. On for a host that imports a legacy database or suspends people: it is the host's
+        /// <c>UserProfiles</c> setting, which <c>kdyf-auth</c> follows.
+        /// </summary>
+        public bool UserProfiles { get; set; }
+
         /// <summary>What a person approved (<see cref="SchemaApprovals"/>).</summary>
         public ISet<string> Approvals { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

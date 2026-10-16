@@ -370,15 +370,28 @@ public sealed class AddKdyfAuthorizationTests
             typeof(IPermissionStore), typeof(IPermissionCatalog), typeof(IPatStore),
             typeof(RolePermissionMapProvider), typeof(IRolePermissionSource), typeof(IUserRoleSource), typeof(DeclaredPermissions),
             typeof(IMembershipSource), typeof(IUserContext), typeof(AuthorizationDbContext), typeof(PolicyReport),
-            typeof(IUserSuspensionSource), typeof(IUserActivityRecorder),
         })
             Assert.IsTrue(services.Any(d => d.ServiceType == type), $"{type.Name} is not registered.");
+
+        // The profiles (suspension, last access) are optional: the six tables are the whole schema until UserProfiles is on.
+        foreach (var type in new[] { typeof(IUserSuspensionSource), typeof(IUserActivityRecorder) })
+            Assert.IsFalse(services.Any(d => d.ServiceType == type), $"{type.Name} is registered without UserProfiles.");
 
         // First among the hosted services: the check of the schema's version, then the catalog sync, so nothing reads
         // auth.Permission before it is written, and nothing writes to a schema of another version.
         var hosted = services.Where(d => d.ServiceType == typeof(IHostedService)).Select(d => d.ImplementationType).Take(2).ToArray();
         Assert.AreEqual("SchemaVersionCheck`1", hosted[0]!.Name);
         Assert.AreEqual(typeof(PermissionCatalogSynchronizer<AuthorizationDbContext>), hosted[1]);
+    }
+
+    [TestMethod]
+    public void The_profiles_are_registered_when_they_are_turned_on()
+    {
+        var services = new ServiceCollection();
+        Register(services, With(("UserProfiles", "true")));
+
+        foreach (var type in new[] { typeof(IUserSuspensionSource), typeof(IUserActivityRecorder) })
+            Assert.IsTrue(services.Any(d => d.ServiceType == type), $"{type.Name} is not registered with UserProfiles.");
     }
 
     /// <summary>
@@ -599,7 +612,7 @@ public sealed class AddKdyfAuthorizationTests
     }
 
     /// <summary>
-    /// A host's own claims transformation (kdyf.admin's directory roles) is kept, and runs on the principal the simulation
+    /// A host's own claims transformation (a legacy host's directory roles) is kept, and runs on the principal the simulation
     /// produced: registered beside it, one of the two would silently win.
     /// </summary>
     [TestMethod]

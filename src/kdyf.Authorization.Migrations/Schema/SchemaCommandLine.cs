@@ -1,4 +1,7 @@
 using System.Data.Common;
+using kdyf.Authorization.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace kdyf.Authorization.Migrations.Schema
 {
@@ -12,7 +15,7 @@ namespace kdyf.Authorization.Migrations.Schema
     /// kdyf-auth plan                       the dry run: what would be applied, and what stands in the way
     /// kdyf-auth script &lt;file&gt;            the SQL for a DBA; run verify after it
     /// kdyf-auth apply                      apply, each step verified before it is recorded
-    /// kdyf-auth adopt                      apply, only on a database that is adopted (mtcm today)
+    /// kdyf-auth adopt                      apply, only on a database that is adopted (the reference schema today)
     /// kdyf-auth verify                     the schema equals its version's manifest
     /// kdyf-auth cutover                    mark CutoverCompleted (closes the legacy import)
     ///
@@ -52,8 +55,9 @@ namespace kdyf.Authorization.Migrations.Schema
                                  (host) The automatic go/no-go, then CutoverCompleted and the rollback window.
               rollback-sync plan | apply
                                  Take the revocations made since the cutover back to the legacy schema. Never grants.
-              contract rename | drop --confirm
-                                 After the window: the legacy schema renamed to <schema>_legacy_<date>, later dropped.
+              contract rename | drop | promote --confirm
+                                 After the window: the legacy schema renamed to <schema>_legacy_<date>, later dropped;
+                                 then promote: the new schema takes the legacy name (authz -> auth), role included.
               exceptions import <file> --approver <name>
                                  (host) The approved exceptions to the invariant (JSON); the file replaces the previous set.
 
@@ -64,6 +68,8 @@ namespace kdyf.Authorization.Migrations.Schema
               --backup-confirmed     A backup of the database was taken for this run.
               --host-version <v>     Recorded in the run log.
               --legacy-schema <name> The legacy schema to read (default 'auth').
+              --user-profiles        Keep a profile per person (UserProfile, version 4). The host's UserProfiles
+                                     setting is the default; the legacy import needs it.
             """;
 
         /// <summary>Runs one command. <paramref name="args"/> start after <c>kdyf-auth</c>.</summary>
@@ -89,9 +95,20 @@ namespace kdyf.Authorization.Migrations.Schema
             }
 
             var command = args[0].ToLowerInvariant();
+            var userProfiles = services?.GetService<IOptions<AuthorizationStoreOptions>>()?.Value.UserProfiles ?? false;
+            if (args.Skip(1).Any(a => a == "--user-profiles"))
+                userProfiles = true;
             if (Legacy.LegacyCommands.Handles(command))
-                return await Legacy.LegacyCommands.RunAsync(args, connectionString, defaultSchema, services, output, cancellationToken);
-            var options = new SchemaMigrationOptions { Schema = defaultSchema };
+            {
+                // The import fills UserProfile (the legacy ids, who is suspended) and reads it back: no profiles, no import.
+                if (!userProfiles && command != "contract")
+                {
+                    await output.WriteLineAsync($"'{command}' needs the profiles (UserProfile, schema version 4): set UserProfiles=true in the host's configuration, or pass --user-profiles.");
+                    return Usage;
+                }
+                return await Legacy.LegacyCommands.RunAsync(args.Where(a => a != "--user-profiles").ToList(), connectionString, defaultSchema, services, output, cancellationToken);
+            }
+            var options = new SchemaMigrationOptions { Schema = defaultSchema, UserProfiles = userProfiles };
             string? file = null;
             var legacySchema = "auth";
 
@@ -108,6 +125,7 @@ namespace kdyf.Authorization.Migrations.Schema
                         case "--backup-confirmed": options.BackupConfirmed = true; break;
                         case "--host-version": options.HostVersion = Value(); break;
                         case "--legacy-schema": legacySchema = Value(); break;
+                        case "--user-profiles": break;
                         default:
                             if (command == "script" && file is null && !args[i].StartsWith("--", StringComparison.Ordinal))
                                 file = args[i];

@@ -4,7 +4,7 @@ namespace kdyf.Authorization.Migrations.Test;
 internal static class Fixtures
 {
     /// <summary>
-    /// The shape of the databases created by the hosts' script before versioning (mtcm's auth-schema.sql): version 1,
+    /// The shape of the databases created by the hosts' script before versioning (the reference auth-schema.sql): version 1,
     /// without IX_RolePermission_PermissionCode, with defaults and the token hash as a unique constraint.
     /// </summary>
     public const string HostScriptVersion1 = """
@@ -89,7 +89,7 @@ internal static class Fixtures
         CREATE TABLE auth.UserRole (UserId INT NOT NULL, RoleId INT NOT NULL, CONSTRAINT PK_UserRole PRIMARY KEY (UserId, RoleId));
         """;
 
-    /// <summary>mtcm's model of 10 September 2026: grants keyed by roleValue with no Role table.</summary>
+    /// <summary>The reference model of 10 September 2026: grants keyed by roleValue with no Role table.</summary>
     public const string RolesWithoutTable = """
         CREATE SCHEMA auth;
         GO

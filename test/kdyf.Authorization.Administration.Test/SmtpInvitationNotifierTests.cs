@@ -15,7 +15,7 @@ namespace kdyf.Authorization.Administration.Test;
 public sealed class SmtpInvitationNotifierTests
 {
     /// <summary>
-    /// In kdyf.auth the default said "Wimba", so any other application sent its invitations under
+    /// In kdyf.auth the default named one client, so any other application sent its invitations under
     /// that client's brand. The name is now the application's, and nothing else is hard-coded.
     /// </summary>
     [TestMethod]
@@ -26,7 +26,7 @@ public sealed class SmtpInvitationNotifierTests
         var body = Notifier(options).BuildBody(new InvitationNotice("ana@contoso.com", "Ana", "https://redeem.example/x"));
 
         StringAssert.Contains(body, "Contoso Portal");
-        Assert.IsFalse(body.Contains("Wimba", StringComparison.OrdinalIgnoreCase), "Another client's brand leaked into the email.");
+        Assert.IsFalse(body.Contains("Acme", StringComparison.OrdinalIgnoreCase), "Another client's brand leaked into the email.");
         Assert.AreEqual("Contoso Portal", options.EffectiveFromName);
         Assert.AreEqual("You have been invited to Contoso Portal", options.EffectiveSubject);
     }

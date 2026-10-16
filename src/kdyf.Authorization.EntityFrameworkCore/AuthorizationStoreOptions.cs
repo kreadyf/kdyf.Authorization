@@ -38,6 +38,14 @@ namespace kdyf.Authorization.EntityFrameworkCore
         public bool RequireSchemaVersion { get; set; }
 
         /// <summary>
+        /// Keep a profile per person (<c>UserProfile</c>, schema version 4): suspension, the last access and the legacy user
+        /// id of an imported database. Off by default: the schema is then the six tables of version 3, and nobody is
+        /// suspended or has a last access recorded. Turn it on for a host that imports a legacy database or suspends people,
+        /// and run the schema migration with the same setting (<c>kdyf-auth apply</c> follows the host's configuration).
+        /// </summary>
+        public bool UserProfiles { get; set; }
+
+        /// <summary>
         /// How often, at most, a person's last access (<c>UserProfile.lastLoginAt</c>) is written: once per person in
         /// this interval, whatever the number of requests. <see cref="TimeSpan.Zero"/> turns the recording off.
         /// </summary>

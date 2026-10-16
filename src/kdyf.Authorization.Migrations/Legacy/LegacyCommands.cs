@@ -272,6 +272,17 @@ namespace kdyf.Authorization.Migrations.Legacy
                     return SchemaCommandLine.Ok;
                 }
 
+                if (command == "contract" && subcommand is "promote")
+                {
+                    if (!confirmed)
+                    {
+                        await output.WriteLineAsync($"The promotion renames the schema [{targetSchema}] to [{legacySchema}] (and the runtime role with it): confirm it with --confirm.");
+                        return SchemaCommandLine.Usage;
+                    }
+                    await output.WriteLineAsync(await LegacyCutover.PromoteAsync(connectionString, targetSchema, legacySchema, DateTime.UtcNow, cancellationToken));
+                    return SchemaCommandLine.Ok;
+                }
+
                 if (command == "contract" && subcommand is "rename" or "drop")
                 {
                     if (!confirmed)
@@ -283,7 +294,7 @@ namespace kdyf.Authorization.Migrations.Legacy
                     return SchemaCommandLine.Ok;
                 }
 
-                await output.WriteLineAsync("rollback-sync plan|apply | contract rename|drop --confirm");
+                await output.WriteLineAsync("rollback-sync plan|apply | contract rename|drop|promote --confirm");
                 return SchemaCommandLine.Usage;
             }
             catch (Exception ex) when (ex is DbException or InvalidOperationException)

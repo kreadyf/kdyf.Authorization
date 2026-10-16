@@ -118,7 +118,7 @@ public sealed class SchemaCommandLineTests
     {
         await using var db = await TestDatabase.CreateAsync();
         using var host = Host.CreateDefaultBuilder()
-            .ConfigureServices(services => services.AddSingleton(Options.Create(new AuthorizationStoreOptions { ConnectionString = db.ConnectionString, Schema = "authz" })))
+            .ConfigureServices(services => services.AddSingleton(Options.Create(new AuthorizationStoreOptions { ConnectionString = db.ConnectionString, Schema = "authz", UserProfiles = true })))
             .Build();
 
         Assert.IsFalse(await host.RunKdyfAuthCommandAsync(Array.Empty<string>()));
@@ -134,7 +134,7 @@ public sealed class SchemaCommandLineTests
         {
             Environment.ExitCode = exitCode;
         }
-        Assert.IsTrue((await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = "authz" }).VerifyAsync()).Succeeded);
+        Assert.IsTrue((await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = "authz", UserProfiles = true }).VerifyAsync()).Succeeded);
     }
 
     private sealed class ScopedGate : IMembershipSource

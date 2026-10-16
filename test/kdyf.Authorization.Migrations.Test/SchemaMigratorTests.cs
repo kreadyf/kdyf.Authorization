@@ -13,7 +13,8 @@ namespace kdyf.Authorization.Migrations.Test;
 [TestClass]
 public sealed class SchemaMigratorTests
 {
-    private static readonly int Steps = MigrationSteps.All.Count;
+    /// <summary>The steps of a schema without the profiles, which is the default: the six tables, indexed and granted.</summary>
+    private static readonly int Steps = MigrationSteps.For(userProfiles: false).Count;
 
     private static SchemaMigrator Migrator(TestDatabase db, Action<SchemaMigrationOptions>? configure = null)
     {
@@ -33,11 +34,43 @@ public sealed class SchemaMigratorTests
         var report = await migrator.ApplyAsync();
 
         Assert.AreEqual(SchemaRunResult.Succeeded, report.Result, report.Error);
-        Assert.AreEqual(SchemaMigrator.RequiredVersion, report.Version);
+        Assert.AreEqual(SchemaMigrator.RequiredVersionFor(userProfiles: false), report.Version);
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE name = 'UserProfile'"), "the profiles are not part of the clean schema");
         var verification = await migrator.VerifyAsync();
         Assert.IsTrue(verification.Succeeded, string.Join(Environment.NewLine, verification.Issues));
         Assert.AreEqual(Steps, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaVersion WHERE Status = 'Applied' AND Origin = 'installed'"));
         Assert.AreEqual("Succeeded", await db.ScalarAsync<string>("SELECT Result FROM auth.SchemaMigrationLog"));
+    }
+
+    [TestMethod]
+    public async Task With_the_profiles_the_schema_goes_one_step_further()
+    {
+        await using var db = await TestDatabase.CreateAsync();
+        var migrator = Migrator(db, o => o.UserProfiles = true);
+
+        var report = await migrator.ApplyAsync();
+
+        Assert.AreEqual(SchemaRunResult.Succeeded, report.Result, report.Error);
+        Assert.AreEqual(SchemaMigrator.RequiredVersion, report.Version);
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE name = 'UserProfile'"));
+        var verification = await migrator.VerifyAsync();
+        Assert.IsTrue(verification.Succeeded, string.Join(Environment.NewLine, verification.Issues));
+    }
+
+    /// <summary>The profiles can be turned on later: the step is added to a schema that already runs.</summary>
+    [TestMethod]
+    public async Task The_profiles_are_added_later_to_a_schema_that_already_runs()
+    {
+        await using var db = await TestDatabase.CreateAsync();
+        Assert.IsTrue((await Migrator(db).ApplyAsync()).Succeeded);
+
+        var later = await Migrator(db, o => o.UserProfiles = true).ApplyAsync();
+
+        Assert.AreEqual(SchemaRunResult.Succeeded, later.Result, later.Error);
+        Assert.AreEqual(SchemaMigrator.RequiredVersion, later.Version);
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE name = 'UserProfile'"));
+        Assert.IsTrue((await Migrator(db, o => o.UserProfiles = true).VerifyAsync()).Succeeded);
+        Assert.IsTrue((await Migrator(db).VerifyAsync()).Succeeded, "a host without the profiles still verifies a schema that has them");
     }
 
     [TestMethod]

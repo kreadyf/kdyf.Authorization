@@ -24,7 +24,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     public sealed class LegacyImportSettings
     {
         /// <summary>
-        /// kdyf.admin's role given to everybody who signed in (<c>Default</c>): not copied. The base access comes from the new
+        /// The legacy role given to everybody who signed in (<c>Default</c>): not copied. The base access comes from the new
         /// gate to its members, so nobody keeps for good what depended on signing in again.
         /// </summary>
         public string? AutoProvisionedRole { get; init; }

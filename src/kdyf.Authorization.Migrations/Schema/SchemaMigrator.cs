@@ -28,7 +28,7 @@ namespace kdyf.Authorization.Migrations.Schema
         private readonly IReadOnlyList<MigrationStep> _steps;
 
         public SchemaMigrator(string connectionString, SchemaMigrationOptions? options = null, ILogger? logger = null)
-            : this(connectionString, options ?? new SchemaMigrationOptions(), logger, MigrationSteps.All)
+            : this(connectionString, options ?? new SchemaMigrationOptions(), logger, MigrationSteps.For((options ?? new SchemaMigrationOptions()).UserProfiles))
         {
         }
 
@@ -42,8 +42,11 @@ namespace kdyf.Authorization.Migrations.Schema
             _steps = steps;
         }
 
-        /// <summary>The version the packages require: the last step.</summary>
+        /// <summary>The version the packages require with the profiles: the last step.</summary>
         public static int RequiredVersion => MigrationSteps.All[^1].Version;
+
+        /// <summary>The version a schema is migrated to, with or without the profiles.</summary>
+        public static int RequiredVersionFor(bool userProfiles) => MigrationSteps.For(userProfiles)[^1].Version;
 
         private int TargetVersion => _steps[^1].Version;
 
@@ -303,7 +306,7 @@ namespace kdyf.Authorization.Migrations.Schema
             if (current <= TargetVersion)
                 foreach (var step in _steps.Where(s => s.Version > current))
                 {
-                    // The tables are there already (mtcm, or an adoption that failed half-way): stamped, not created.
+                    // The tables are there already (a reference database, or an adoption that failed half-way): stamped, not created.
                     var exists = SchemaManifest.Tables(step.Version).Any(t => detection.Snapshot.Table(t.Name) is not null);
                     actions.Add(step.Adoptable && exists
                         ? new(PlannedActionKind.Adopt, step.Version, $"{step.Id}: the tables exist; stamped after verifying their shape")

@@ -44,7 +44,7 @@ namespace kdyf.Authorization.Migrations.Legacy
 
         public int MinAdministrators { get; init; } = 2;
 
-        /// <summary>WIMBA: tokens passed the legacy gate whatever their owner's membership.</summary>
+        /// <summary>Group-gated legacy hosts: tokens passed the legacy gate on their own, whatever their owner's membership.</summary>
         public bool TokensExemptFromGate { get; init; }
     }
 

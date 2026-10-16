@@ -50,7 +50,7 @@ namespace kdyf.Authorization.Migrations.Schema
     }
 
     /// <summary>
-    /// Version 1: the six tables, as mtcm's databases already have them. An existing database with this shape is
+    /// Version 1: the six tables, as the reference databases already have them. An existing database with this shape is
     /// adopted: stamped, not rebuilt.
     /// </summary>
     internal sealed class TablesStep : MigrationStep
@@ -191,6 +191,13 @@ namespace kdyf.Authorization.Migrations.Schema
     /// <summary>The steps, in order. The last one is the version the packages require.</summary>
     internal static class MigrationSteps
     {
+        /// <summary>The version of the last step without the profiles (the six tables, indexed and granted).</summary>
+        public const int WithoutProfiles = 3;
+
+        /// <summary>The steps of a schema with or without <c>UserProfile</c>: the profile step is optional.</summary>
+        public static IReadOnlyList<MigrationStep> For(bool userProfiles) =>
+            userProfiles ? All : All.Where(s => s.Version <= WithoutProfiles).ToArray();
+
         public static IReadOnlyList<MigrationStep> All { get; } = new MigrationStep[]
         {
             new RuntimeRoleStep(),

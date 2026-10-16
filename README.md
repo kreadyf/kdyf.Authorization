@@ -71,6 +71,7 @@ and the message names the key.
   "ConnectionStringName": "Authorization",    // ConnectionStrings:{name}; the host may also name it in code
   "Schema": "auth",
   "RequireSchemaVersion": false,              // true once every environment is versioned
+  "UserProfiles": false,                      // true: keep UserProfile (suspension, last access, legacy ids): schema version 4
   "LastAccessInterval": "00:15:00",           // UserProfile.lastLoginAt written at most this often; 00:00:00 turns it off
   "EntraId": { "TenantId": "…", "ClientId": "…", "Audience": "" },
   "Directory": {
@@ -104,6 +105,11 @@ tenant — so give it to a separate app registration used only for Graph, with a
   and what it grants in one transaction and one audit entry. The version covers the name and description too.
 
 People live in `UserProfile` only when something is known about them: no row means an active person.
+
+`UserProfile` is optional. With `"UserProfiles": false` (the default) the schema is the six tables of version 3, as
+the reference databases have them: nobody can be suspended and no last access is recorded. A host that imports a legacy
+database, or suspends people, sets `"UserProfiles": true`, and `kdyf-auth apply` (which follows the host's setting, or
+`--user-profiles`) takes the schema to version 4. It can be turned on later: the step is added to a schema that runs.
 
 ## Schema versions
 

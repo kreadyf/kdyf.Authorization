@@ -20,7 +20,7 @@ namespace kdyf.Authorization.Migrations.Schema
 
     /// <summary>
     /// The shape of the schema at each version: what the steps create, what an existing database must look like to be
-    /// adopted, and what <c>verify</c> checks. Version 1 is the shape mtcm's databases already have; the EF model of the
+    /// adopted, and what <c>verify</c> checks. Version 1 is the shape the reference databases already have; the EF model of the
     /// packages is aligned to the latest version, and a test holds the two together.
     /// </summary>
     public static class SchemaManifest
@@ -81,7 +81,7 @@ namespace kdyf.Authorization.Migrations.Schema
                 new TableSpec("UserRole",
                     new[]
                     {
-                        // Lower-case GUID text, normalised by the code: no binary collation, as in mtcm's databases.
+                        // Lower-case GUID text, normalised by the code: no binary collation, as in the reference databases.
                         new ColumnSpec("objectId", "varchar(50)"),
                         new ColumnSpec("roleValue", "varchar(100)", Collation: Bin2),
                     },

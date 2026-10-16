@@ -108,7 +108,7 @@ public sealed class DirtyDataBankTests
         await RunAsync(ShapeEf, "INSERT INTO auth.[User] (email, objectId) VALUES ('ANA@test', '0f1e2d3c-0000-0000-0000-0000000000b2');",
             Tenant(), Expect.Blocked("duplicate-email"));
 
-    /// <summary>kdyf.admin's 'MFA Viewer' and 'MfaViewer': two roles, two values, never merged.</summary>
+    /// <summary>A legacy host's 'MFA Viewer' and 'MfaViewer': two roles, two values, never merged.</summary>
     [TestMethod]
     public async Task Two_roles_with_almost_the_same_name_stay_two() =>
         await RunAsync(ShapeEf, """
@@ -247,7 +247,7 @@ public sealed class DirtyDataBankTests
         await db.ExecuteAsync(Base);
         if (dirt.Length > 0)
             await db.ExecuteAsync(dirt);
-        Assert.IsTrue((await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = Target }).ApplyAsync()).Succeeded);
+        Assert.IsTrue((await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = Target, UserProfiles = true }).ApplyAsync()).Succeeded);
 
         var (_, report) = await LegacyInspector.InspectAsync(db.ConnectionString, "auth");
         var resolver = new IdentityResolver(tenant, tenant, new LegacyImportOptions { Gate = LegacyGate.Group, LegacyGroupId = Guid.NewGuid().ToString() },

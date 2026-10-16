@@ -31,12 +31,12 @@ namespace kdyf.Authorization.Migrations.Legacy
     public enum LegacyGate
     {
         /// <summary>
-        /// WIMBA: the members of an Entra group. Users without an object id were let through, and so were tokens: both
+        /// Group-gated legacy hosts: the members of an Entra group. Users without an object id were let through, and so were tokens: both
         /// exemptions are recorded, and the invariant compares against them.
         /// </summary>
         Group,
 
-        /// <summary>kdyf.admin: every active row of auth.[User] (anybody signing in got one, with the base role).</summary>
+        /// <summary>Table-gated legacy hosts: every active row of auth.[User] (anybody signing in got one, with the base role).</summary>
         ActiveUsers,
     }
 
@@ -54,7 +54,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>How old the identities and the gate snapshot may be when the import applies them (default 12 h).</summary>
         public TimeSpan MaxSnapshotAge { get; set; } = TimeSpan.FromHours(12);
 
-        /// <summary>kdyf.admin's role given to everybody who signed in (<c>Default</c>): not copied.</summary>
+        /// <summary>The legacy role given to everybody who signed in (<c>Default</c>): not copied.</summary>
         public string? AutoProvisionedRole { get; set; }
 
         /// <summary>The hash (hex) of a bootstrap token published in a repository's history: copied inactive.</summary>
@@ -65,7 +65,7 @@ namespace kdyf.Authorization.Migrations.Legacy
 
         /// <summary>
         /// Codes that must be held after the import by exactly who held them before (the administration code always is):
-        /// kdyf.admin's <c>global.Vault</c>, for instance.
+        /// a host's own <c>global.Vault</c>, for instance.
         /// </summary>
         public List<string> ExactCodes { get; set; } = new();
 
@@ -209,7 +209,7 @@ namespace kdyf.Authorization.Migrations.Legacy
                 return false;
             if (_options.Gate == LegacyGate.ActiveUsers)
                 return true;
-            // WIMBA let a user without an object id through: the gate could not be asked about them.
+            // A group-gated legacy host let a user without an object id through: the gate could not be asked about them.
             if (!Guid.TryParse(user.ObjectId, out var given))
                 return true;
             return await _directory.InLegacyGroupAsync(given.ToString(), cancellationToken);

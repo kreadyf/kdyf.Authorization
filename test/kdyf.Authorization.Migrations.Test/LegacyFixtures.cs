@@ -1,8 +1,8 @@
 namespace kdyf.Authorization.Migrations.Test;
 
 /// <summary>
-/// The legacy kdyf.auth.* shapes as their scripts created them (wimba.services2 and kdyf.admin history): A 43529c3,
-/// B 75ff4f7, C 9aa3f72 / ee449d9, K0 kdyf.admin 5400e09. B′ is C with PersonalAccessTokenRole left in place.
+/// The legacy kdyf.auth.* shapes as their scripts created them: A, B, C and K0 (a host's first model). B′ is C with
+/// PersonalAccessTokenRole left in place.
 /// </summary>
 internal static class LegacyFixtures
 {

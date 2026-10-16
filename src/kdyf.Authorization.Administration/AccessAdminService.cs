@@ -38,6 +38,9 @@ namespace kdyf.Authorization.Administration
         private readonly ILogger<AccessAdminService<TContext>> _logger;
         private readonly IMemoryCache? _memory;
 
+        /// <summary>Whether the schema keeps profiles (suspension, last access): without them there is no table to read.</summary>
+        private readonly bool _profiles;
+
         /// <summary>The code that means "administers access": what the lockout guard counts.</summary>
         private readonly string _administrationCode;
 
@@ -51,9 +54,11 @@ namespace kdyf.Authorization.Administration
             IAccessChangeNotifier notifier,
             ILogger<AccessAdminService<TContext>> logger,
             PermissionAuthorizationOptions? options = null,
-            IMemoryCache? memory = null)
+            IMemoryCache? memory = null,
+            Microsoft.Extensions.Options.IOptions<kdyf.Authorization.EntityFrameworkCore.AuthorizationStoreOptions>? store = null)
         {
             _memory = memory;
+            _profiles = store?.Value.UserProfiles ?? true;
             _context = context;
             _group = group;
             _roles = roles;
@@ -316,6 +321,9 @@ namespace kdyf.Authorization.Administration
 
         private async Task<ValidationResult<AccessUserResponse>> SetSuspendedAsync(string objectId, bool suspended, AdminActor actor, CancellationToken ct)
         {
+            if (!_profiles)
+                return Outcome.Error<AccessUserResponse>("suspension", "Suspension needs the profiles: turn UserProfiles on and apply schema version 4.");
+
             if (Refuse(actor) is { } refusal)
                 return Outcome.Error<AccessUserResponse>("actor", refusal);
 
@@ -902,9 +910,11 @@ namespace kdyf.Authorization.Administration
                 return null;
 
             // A suspended administrator administers nothing.
-            var suspended = (await _context.Set<UserProfileRow>().AsNoTracking()
-                    .Where(p => !p.IsActive).Select(p => p.ObjectId).ToListAsync(ct))
-                .ToHashSet(StringComparer.Ordinal);
+            var suspended = !_profiles
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : (await _context.Set<UserProfileRow>().AsNoTracking()
+                        .Where(p => !p.IsActive).Select(p => p.ObjectId).ToListAsync(ct))
+                    .ToHashSet(StringComparer.Ordinal);
 
             var candidates = held
                 .Where(h => h.Key != exceptKey && !suspended.Contains(h.Key) && Administers(map, h.Value))
@@ -990,7 +1000,7 @@ namespace kdyf.Authorization.Administration
             var roles = (await _context.Set<UserRoleRow>().AsNoTracking()
                     .Where(r => r.ObjectId == key).Select(r => r.RoleValue).ToListAsync(ct))
                 .ToHashSet(StringComparer.Ordinal);
-            var profile = await _context.Set<UserProfileRow>().AsNoTracking().FirstOrDefaultAsync(p => p.ObjectId == key, ct);
+            var profile = !_profiles ? null : await _context.Set<UserProfileRow>().AsNoTracking().FirstOrDefaultAsync(p => p.ObjectId == key, ct);
 
             await Task.WhenAll(accountCall, memberCall);
 
@@ -1015,7 +1025,9 @@ namespace kdyf.Authorization.Administration
 
         /// <summary>The profiles: object id → profile. Most people have none (no row means active).</summary>
         private async Task<IReadOnlyDictionary<string, UserProfileRow>> ProfilesAsync(CancellationToken ct) =>
-            await _context.Set<UserProfileRow>().AsNoTracking().ToDictionaryAsync(p => p.ObjectId, StringComparer.Ordinal, ct);
+            !_profiles
+                ? new Dictionary<string, UserProfileRow>(StringComparer.Ordinal)
+                : await _context.Set<UserProfileRow>().AsNoTracking().ToDictionaryAsync(p => p.ObjectId, StringComparer.Ordinal, ct);
 
         private static UserProfileRow? ProfileOf(IReadOnlyDictionary<string, UserProfileRow> profiles, string objectId) =>
             profiles.TryGetValue(UserRoleRow.Normalize(objectId), out var profile) ? profile : null;

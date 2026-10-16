@@ -8,7 +8,7 @@ public sealed class LegacyRoleValuesTests
 {
     [DataTestMethod]
     [DataRow("Super Admin", "super-admin")]
-    [DataRow("WIMBA Office", "wimba-office")]
+    [DataRow("Acme Office", "acme-office")]
     [DataRow("Compliance Mail Reader", "compliance-mail-reader")]
     [DataRow("MFA Viewer", "mfa-viewer")]
     [DataRow("Gestión de Créditos", "gestion-de-creditos")]
@@ -24,7 +24,7 @@ public sealed class LegacyRoleValuesTests
     public void A_long_name_is_cut_to_90_characters() =>
         Assert.AreEqual(90, LegacyRoleValues.Generate(new string('a', 300), 1).Length);
 
-    /// <summary>'MFA Viewer' and 'MfaViewer' are two roles in kdyf.admin: two values, never one.</summary>
+    /// <summary>'MFA Viewer' and 'MfaViewer' are two roles in a legacy host: two values, never one.</summary>
     [TestMethod]
     public void Two_roles_that_generate_the_same_value_stay_two_roles()
     {
@@ -50,11 +50,11 @@ public sealed class LegacyRoleValuesTests
     public void An_override_wins_over_the_generated_value()
     {
         var values = LegacyRoleValues.Assign(
-            new[] { new LegacyRole(1, "Super Admin"), new LegacyRole(2, "Wimba SuperAdmin") },
-            overrides: new Dictionary<int, string> { [1] = "Wimba.SuperAdmin" });
+            new[] { new LegacyRole(1, "Super Admin"), new LegacyRole(2, "Acme SuperAdmin") },
+            overrides: new Dictionary<int, string> { [1] = "Acme.SuperAdmin" });
 
-        Assert.AreEqual("Wimba.SuperAdmin", values[1]);
-        Assert.AreEqual("wimba-superadmin", values[2]);
+        Assert.AreEqual("Acme.SuperAdmin", values[1]);
+        Assert.AreEqual("acme-superadmin", values[2]);
     }
 
     [TestMethod]
@@ -63,7 +63,7 @@ public sealed class LegacyRoleValuesTests
         var error = Assert.ThrowsException<InvalidOperationException>(() => LegacyRoleValues.Assign(
             new[] { new LegacyRole(1, "Super Admin") },
             mapped: new Dictionary<int, string> { [1] = "super-admin" },
-            overrides: new Dictionary<int, string> { [1] = "Wimba.SuperAdmin" }));
+            overrides: new Dictionary<int, string> { [1] = "Acme.SuperAdmin" }));
 
         StringAssert.Contains(error.Message, "explicit step");
     }

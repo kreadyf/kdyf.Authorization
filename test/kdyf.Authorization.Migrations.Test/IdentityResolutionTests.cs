@@ -84,7 +84,7 @@ public sealed class IdentityResolutionTests
 
         Assert.AreEqual((true, (bool?)true), (One(identities, 1).PassedLegacyGate, One(identities, 1).PassesNewGate));
         Assert.AreEqual((true, (bool?)false), (One(identities, 2).PassedLegacyGate, One(identities, 2).PassesNewGate), "loses access with the new gate");
-        Assert.IsTrue(One(identities, 3).PassedLegacyGate, "WIMBA let users without an object id through");
+        Assert.IsTrue(One(identities, 3).PassedLegacyGate, "a group-gated host let users without an object id through");
         Assert.IsNull(One(identities, 3).PassesNewGate, "unresolved: the new gate cannot be asked");
         Assert.IsFalse(One(identities, 4).PassedLegacyGate, "an inactive user passed nothing");
     }
@@ -207,6 +207,7 @@ public sealed class IdentityResolutionTests
             .AddSingleton<IMembershipSource>(directory)
             .AddKdyfAuthorizationLegacyImport(o => o.LegacyGroupId = Guid.NewGuid().ToString())
             .AddSingleton<ILegacyDirectory>(directory)
+            .AddSingleton(Microsoft.Extensions.Options.Options.Create(new kdyf.Authorization.EntityFrameworkCore.AuthorizationStoreOptions { UserProfiles = true }))
             .BuildServiceProvider();
         var file = Path.Combine(Path.GetTempPath(), $"identities-{Guid.NewGuid():N}.csv");
         try
@@ -237,7 +238,7 @@ public sealed class IdentityResolutionTests
     {
         var output = new StringWriter();
 
-        var code = await SchemaCommandLine.RunAsync(new[] { "resolve" }, "Server=unused", "authz", output);
+        var code = await SchemaCommandLine.RunAsync(new[] { "resolve", "--user-profiles" }, "Server=unused", "authz", output);
 
         Assert.AreEqual(SchemaCommandLine.Usage, code);
         StringAssert.Contains(output.ToString(), "<host> kdyf-auth resolve");

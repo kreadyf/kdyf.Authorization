@@ -11,16 +11,16 @@ namespace kdyf.Authorization.Migrations.Schema
         /// <summary>Has a history: apply the steps after its version.</summary>
         Versioned,
 
-        /// <summary>The shape of version 1 without a history (mtcm today): adopt, do not rebuild.</summary>
+        /// <summary>The shape of version 1 without a history (the reference schema today): adopt, do not rebuild.</summary>
         Adoptable,
 
         /// <summary>Version 1 except for the binary collation of the key columns: adoptable after a repair, with approval.</summary>
         NeedsCollationRepair,
 
-        /// <summary>The legacy kdyf.auth.* schema (WIMBA, kdyf.admin): imported into another schema, never upgraded in place.</summary>
+        /// <summary>The legacy kdyf.auth.* schema (the legacy hosts): imported into another schema, never upgraded in place.</summary>
         Legacy,
 
-        /// <summary>A known shape that cannot be migrated automatically (mtcm before September 2026's model): fix by hand.</summary>
+        /// <summary>A known shape that cannot be migrated automatically (the reference model before September 2026): fix by hand.</summary>
         Unsupported,
 
         /// <summary>Any other combination: nothing is done, and the differences are reported.</summary>
@@ -130,7 +130,7 @@ namespace kdyf.Authorization.Migrations.Schema
             if (role is null && snapshot.Table("RolePermission")?.Column("roleValue") is not null)
                 return new SchemaDetection(SchemaState.Unsupported, snapshot, history, markers, Array.Empty<SchemaDifference>(),
                     $"{schema}: RolePermission keyed by roleValue without a Role table (the model of 10 September 2026). "
-                    + "Bring it to the current shape by hand (mtcm's auth-schema.sql), then adopt it.");
+                    + "Bring it to the current shape by hand (the reference auth-schema.sql), then adopt it.");
 
             var tableDifferences = SchemaComparer.CompareTables(snapshot, 1);
             if (tableDifferences.Any(d => d.Kind == DifferenceKind.Mismatch))

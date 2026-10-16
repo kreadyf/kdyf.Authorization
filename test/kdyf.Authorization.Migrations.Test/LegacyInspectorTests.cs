@@ -67,7 +67,7 @@ public sealed class LegacyInspectorTests
         Assert.AreEqual(0, report!.Data.Tokens.Count);
     }
 
-    /// <summary>The import must know who else points at the legacy ids (kdyf.admin's vault.EntryAccess.RoleId).</summary>
+    /// <summary>The import must know who else points at the legacy ids (a host's own vault.EntryAccess.RoleId).</summary>
     [TestMethod]
     public async Task A_column_in_another_schema_named_like_a_legacy_id_is_reported()
     {

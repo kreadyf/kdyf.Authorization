@@ -84,8 +84,10 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 // AddKdyfAuthorizationAdministration is registered.
                 services.AddEfRoles<AuthorizationDbContext>();
 
-                // Suspension and the last access (auth.UserProfile, schema version 4). No row means active.
-                services.AddEfUserProfiles<AuthorizationDbContext>();
+                // Suspension and the last access (auth.UserProfile, schema version 4). No row means active. Only with
+                // UserProfiles on: otherwise the table does not exist, and nobody is suspended or recorded.
+                if (context.Section.GetValue<bool>(nameof(AuthorizationStoreOptions.UserProfiles)))
+                    services.AddEfUserProfiles<AuthorizationDbContext>();
 
                 // Which permissions exist, persisted: auth.Permission is brought in line with the declared classes
                 // when the host starts (inserted, names updated, never deleted). RolePermission points at it.

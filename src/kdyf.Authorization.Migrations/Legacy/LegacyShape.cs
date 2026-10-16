@@ -3,7 +3,7 @@ using kdyf.Authorization.Migrations.Schema;
 namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary>Which of the legacy kdyf.auth.* shapes a schema has, and whether it can be imported.</summary>
-    /// <param name="Label">A (2026-07-14), B (07-15), B′ (B + 07-22 scripts), C (07-27, final), K0 (kdyf.admin's first model).</param>
+    /// <param name="Label">A (2026-07-14), B (07-15), B′ (B + 07-22 scripts), C (07-27, final), K0 (a host's first model).</param>
     /// <param name="Supported">Whether it can be imported.</param>
     /// <param name="Description">What it is, for a person.</param>
     /// <param name="Notes">What else the catalog shows (an EF-created table, a missing index).</param>
@@ -17,7 +17,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// <item><b>B</b>: lower-case columns, <c>objectId nvarchar(50)</c>, tokens with <c>PersonalAccessTokenRole</c>, no audit log.</item>
     /// <item><b>B′</b>: B plus the audit log and <c>IX_PersonalAccessToken_UserId</c>; <c>PersonalAccessTokenRole</c> may remain.</item>
     /// <item><b>C</b>: seven tables, no <c>PersonalAccessTokenRole</c>: the final script, in every repository today.</item>
-    /// <item><b>K0</b>: kdyf.admin before its alignment: <c>objectId nvarchar(100)</c>, with or without tokens and audit log.</item>
+    /// <item><b>K0</b>: a host before its alignment: <c>objectId nvarchar(100)</c>, with or without tokens and audit log.</item>
     /// </list>
     /// </summary>
     public static class LegacyShapes
@@ -49,7 +49,7 @@ namespace kdyf.Authorization.Migrations.Legacy
 
             if (objectId.Type.Equals("nvarchar(100)", StringComparison.OrdinalIgnoreCase))
                 return new("K0", true,
-                    "kdyf.admin before its alignment (objectId nvarchar(100))" + (token is null ? ", without tokens" : "") + (audit is null ? ", without audit log" : "") + ".", notes);
+                    "a host before its alignment (objectId nvarchar(100))" + (token is null ? ", without tokens" : "") + (audit is null ? ", without audit log" : "") + ".", notes);
 
             if (tokenRoles is not null)
             {

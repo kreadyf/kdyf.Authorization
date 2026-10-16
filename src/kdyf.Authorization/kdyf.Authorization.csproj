@@ -11,7 +11,7 @@
        No EF either, nor anything from a consumer: the source of permissions is supplied by whoever
        implements IPermissionStore (there is a ready-made one in kdyf.Authorization.EntityFrameworkCore).
 
-       Origin: kdyf.auth.Permissions 1.1.0 (kdyf.admin), without the administration contracts
+       Origin: kdyf.auth.Permissions 1.1.0 (a legacy host), without the administration contracts
        (IAuditLog, IDirectoryService, IInvitationNotifier), which moved to kdyf.Authorization.Administration. -->
   <PropertyGroup>
     <Description>Permission-based authorization for ASP.NET Core: permissions and policies declared as classes, wildcards, a cached permission store, personal access tokens (PAT) and read-only user simulation.</Description>

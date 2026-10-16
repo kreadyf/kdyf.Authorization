@@ -31,7 +31,7 @@ namespace kdyf.Authorization.Administration.Notifications
         /// The default sender name and subject derive from it, and the default body shows it.
         /// </summary>
         /// <remarks>
-        /// In kdyf.auth.Access.AspNetCore the name was written into the defaults ("Wimba"), so any
+        /// In kdyf.auth.Access.AspNetCore the name was written into the defaults (a client's name), so any
         /// other application that turned the notifier on sent its invitations under another
         /// client's brand. Set it per application.
         /// </remarks>

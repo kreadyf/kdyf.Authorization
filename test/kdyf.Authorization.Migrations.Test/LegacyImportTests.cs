@@ -39,7 +39,7 @@ public sealed class LegacyImportTests
         await db.ExecuteAsync(LegacyFixtures.TokenData);
         await db.ExecuteAsync(AuditData);
         await db.ExecuteAsync("INSERT INTO auth.RolePermission (RoleId, PermissionCode) VALUES (2, 'Orders.Write');"); // the host does not declare it
-        var installed = await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = Target }).ApplyAsync();
+        var installed = await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = Target, UserProfiles = true }).ApplyAsync();
         Assert.IsTrue(installed.Succeeded, installed.Error);
         if (resolve)
             await ResolveAsync(db);
@@ -240,8 +240,8 @@ public sealed class LegacyImportTests
         await db.ExecuteAsync(LegacyFixtures.ShapeC);
 
         var notInstalled = await ImportAsync(db);
-        await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = Target }).ApplyAsync();
-        await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = Target }).MarkCutoverAsync();
+        await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = Target, UserProfiles = true }).ApplyAsync();
+        await new SchemaMigrator(db.ConnectionString, new SchemaMigrationOptions { Schema = Target, UserProfiles = true }).MarkCutoverAsync();
         var cutOver = await ImportAsync(db);
 
         Assert.IsTrue(notInstalled.Issues.Any(i => i.Code == "target-not-ready"));
@@ -306,6 +306,7 @@ public sealed class LegacyImportTests
             var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
                 .AddSingleton<ILegacyDirectory>(new NoDirectory()).AddSingleton<IMembershipSource>(new NoDirectory())
                 .AddKdyfAuthorizationLegacyImport(o => o.LegacyGroupId = Guid.NewGuid().ToString())
+                .AddSingleton(Microsoft.Extensions.Options.Options.Create(new kdyf.Authorization.EntityFrameworkCore.AuthorizationStoreOptions { UserProfiles = true }))
                 .BuildServiceProvider();
             var code = await SchemaCommandLine.RunAsync(new[] { "exceptions", "import", file, "--approver", "carlos" }, db.ConnectionString, Target, output, services);
             Assert.AreEqual(SchemaCommandLine.Ok, code, output.ToString());
@@ -441,6 +442,39 @@ public sealed class LegacyImportTests
         await LegacyCutover.ContractAsync(db.ConnectionString, schema, Target, true, later, default);
         Assert.IsNull(await db.ScalarAsync<object>($"SELECT SCHEMA_ID('{schema}')"));
         Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"), "the target is untouched");
+    }
+
+    [TestMethod]
+    public async Task The_new_schema_takes_the_legacy_name_with_its_data_its_role_and_its_grants()
+    {
+        await using var db = await CutOverAsync();
+        await db.ExecuteAsync("CREATE USER [app_user] WITHOUT LOGIN; ALTER ROLE [kdyf_authz_runtime] ADD MEMBER [app_user];");
+        var later = DateTime.UtcNow.AddDays(3);
+        var tables = await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('authz')");
+
+        // The legacy schema is in the way until it is renamed, and the window has to be closed.
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.PromoteAsync(db.ConnectionString, Target, "auth", later, default));
+        await LegacyCutover.ContractAsync(db.ConnectionString, "auth", Target, false, later, default);
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.PromoteAsync(db.ConnectionString, Target, "auth", DateTime.UtcNow, default));
+
+        var said = await LegacyCutover.PromoteAsync(db.ConnectionString, Target, "auth", later, default);
+
+        StringAssert.Contains(said, "[authz] is now [auth]");
+        Assert.AreEqual(tables, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('auth')"), "every table moved");
+        Assert.IsNull(await db.ScalarAsync<object>("SELECT SCHEMA_ID('authz')"), "the empty schema is gone");
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.Role"), "the data stayed");
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.SchemaMarker WHERE Name = 'CutoverCompleted'"), "the history moved with it");
+
+        Assert.IsNull(await db.ScalarAsync<object>("SELECT DATABASE_PRINCIPAL_ID('kdyf_authz_runtime')"), "the old role is gone");
+        Assert.AreEqual(1, await db.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM sys.database_role_members rm JOIN sys.database_principals r ON r.principal_id = rm.role_principal_id " +
+            "JOIN sys.database_principals m ON m.principal_id = rm.member_principal_id WHERE r.name = 'kdyf_auth_runtime' AND m.name = 'app_user'"), "the member followed");
+        Assert.AreEqual(1, await db.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM sys.database_permissions p JOIN sys.database_principals r ON r.principal_id = p.grantee_principal_id " +
+            "WHERE r.name = 'kdyf_auth_runtime' AND p.major_id = OBJECT_ID('auth.AuditLog') AND p.permission_name = 'INSERT' AND p.state = 'G'"), "the audit log is still insertable");
+        Assert.AreEqual(1, await db.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM sys.database_permissions p JOIN sys.database_principals r ON r.principal_id = p.grantee_principal_id " +
+            "WHERE r.name = 'kdyf_auth_runtime' AND p.major_id = OBJECT_ID('auth.AuditLog') AND p.permission_name = 'DELETE' AND p.state = 'D'"), "and still not deletable");
     }
 
     private sealed class NoDirectory : ILegacyDirectory, IMembershipSource

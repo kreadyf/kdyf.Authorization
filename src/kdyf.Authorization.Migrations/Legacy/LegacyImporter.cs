@@ -9,7 +9,7 @@ namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary>
     /// A step of the HOST inside the import's transaction, after the import's own: what only the host knows, such as
-    /// kdyf.admin's <c>vault.EntryAccess</c>, which points at legacy role ids. It sees the maps; it must not touch the
+    /// a host's own <c>vault.EntryAccess</c>, which points at legacy role ids. It sees the maps; it must not touch the
     /// import's tables, and it is repeatable (it runs on every apply).
     /// </summary>
     public interface ILegacyImportHostStep

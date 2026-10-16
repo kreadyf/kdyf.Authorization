@@ -236,6 +236,97 @@ namespace kdyf.Authorization.Migrations.Legacy
             return $"[{legacy}] moved to [{renamed}] ({tables.Count} tables). Drop it later with 'contract drop --legacy-schema {renamed} --confirm'.";
         }
 
+        /// <summary>
+        /// The last step of the contraction: the target schema (<c>authz</c>, built beside the legacy one) takes the legacy
+        /// schema's name (<c>auth</c>), so that a database ends with the schema every package defaults to. Every table moves
+        /// (<c>ALTER SCHEMA … TRANSFER</c>: metadata only, the data stays), and the runtime role follows the schema's name:
+        /// <c>kdyf_{from}_runtime</c> is replaced by <c>kdyf_{to}_runtime</c>, with its members and with the grants of the
+        /// version the schema is at, which a transfer drops. All in one transaction.
+        /// </summary>
+        /// <remarks>
+        /// Only after the rollback window has closed and the legacy schema has been renamed away (<c>contract rename</c>): the
+        /// destination must hold no tables. The application is still configured with the old schema name until the new
+        /// configuration is deployed, so this is done in a short window with that deployment ready.
+        /// </remarks>
+        public static async Task<string> PromoteAsync(
+            string connectionString, string from, string to, DateTime now, CancellationToken cancellationToken)
+        {
+            if (string.Equals(from, to, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"[{from}] already is the schema called [{to}].");
+
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            var window = await WindowAsync(connection, from, cancellationToken)
+                         ?? throw new InvalidOperationException($"[{from}] has not been cut over: the legacy schema is still the application's.");
+            if (now < window.WindowEnds)
+                throw new InvalidOperationException($"The rollback window closes at {window.WindowEnds:u}: the legacy schema is needed until then.");
+
+            var inDestination = await ScalarAsync(connection, null, "SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID(@schema)", cancellationToken, ("@schema", to));
+            if (inDestination > 0)
+                throw new InvalidOperationException($"[{to}] still holds {inDestination} tables (the legacy schema?): run 'contract rename' first, and 'contract promote' once it is out of the way.");
+
+            var tables = new List<string>();
+            await using (var list = connection.CreateCommand())
+            {
+                list.CommandText = "SELECT name FROM sys.tables WHERE schema_id = SCHEMA_ID(@schema) ORDER BY name";
+                list.Parameters.Add(new SqlParameter("@schema", from));
+                await using var reader = await list.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                    tables.Add(reader.GetString(0));
+            }
+
+            var applied = (await SchemaHistory.ReadAsync(connection, null, from, cancellationToken))
+                .Where(a => a.Status == SchemaHistory.Applied).Select(a => a.Version).DefaultIfEmpty(0).Max();
+
+            var oldRole = $"kdyf_{from}_runtime";
+            var newRole = $"kdyf_{to}_runtime";
+            var members = new List<string>();
+            await using (var list = connection.CreateCommand())
+            {
+                list.CommandText = """
+                    SELECT m.name FROM sys.database_role_members rm
+                    JOIN sys.database_principals r ON r.principal_id = rm.role_principal_id
+                    JOIN sys.database_principals m ON m.principal_id = rm.member_principal_id
+                    WHERE r.name = @role
+                    """;
+                list.Parameters.Add(new SqlParameter("@role", oldRole));
+                await using var reader = await list.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                    members.Add(reader.GetString(0));
+            }
+
+            var sql = new StringBuilder();
+            sql.AppendLine($"IF SCHEMA_ID(N'{to}') IS NULL EXEC(N'CREATE SCHEMA [{to}] AUTHORIZATION dbo');");
+            foreach (var table in tables)
+                sql.AppendLine($"ALTER SCHEMA [{to}] TRANSFER [{from}].[{table}];");
+            sql.AppendLine($"IF DATABASE_PRINCIPAL_ID(N'{newRole}') IS NULL CREATE ROLE [{newRole}] AUTHORIZATION dbo;");
+            foreach (var member in members)
+                sql.AppendLine($"ALTER ROLE [{newRole}] ADD MEMBER [{member.Replace("]", "]]")}];");
+            foreach (var (table, permissions) in SchemaManifest.Grants(applied))
+                sql.AppendLine($"GRANT {string.Join(", ", permissions)} ON [{to}].[{table}] TO [{newRole}];");
+            foreach (var (table, permissions) in SchemaManifest.Denies(applied))
+                sql.AppendLine($"DENY {string.Join(", ", permissions)} ON [{to}].[{table}] TO [{newRole}];");
+            foreach (var member in members)
+                sql.AppendLine($"ALTER ROLE [{oldRole}] DROP MEMBER [{member.Replace("]", "]]")}];");
+            sql.AppendLine($"IF DATABASE_PRINCIPAL_ID(N'{oldRole}') IS NOT NULL DROP ROLE [{oldRole}];");
+            // Only an empty schema is dropped: a view or a procedure of the host's is not ours to remove.
+            sql.AppendLine($"IF SCHEMA_ID(N'{from}') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sys.objects WHERE schema_id = SCHEMA_ID(N'{from}')) EXEC(N'DROP SCHEMA [{from}]');");
+            sql.AppendLine($"""
+                INSERT INTO [{to}].[{SchemaHistory.LogTable}] (RunId, StartedAt, EndedAt, Machine, PackageVersion, Mode, Result, Report)
+                VALUES (NEWID(), SYSUTCDATETIME(), SYSUTCDATETIME(), @machine, @version, 'promote', 'Succeeded', @report);
+                """);
+
+            await using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, sql.ToString(), cancellationToken,
+                    ("@machine", Environment.MachineName), ("@version", SchemaMigrator.PackageVersion),
+                    ("@report", $"{{\"from\":\"{from}\",\"to\":\"{to}\",\"tables\":{tables.Count},\"members\":{members.Count},\"version\":{applied}}}"));
+                await transaction.CommitAsync(cancellationToken);
+            }
+            return $"[{from}] is now [{to}] ({tables.Count} tables, role [{newRole}] with {members.Count} members). "
+                   + $"Set the application's schema to '{to}' (remove the Schema override) and deploy now.";
+        }
+
         private static async Task<int> ScalarAsync(
             DbConnection connection, DbTransaction? transaction, string sql, CancellationToken cancellationToken, params (string Name, object? Value)[] parameters)
         {

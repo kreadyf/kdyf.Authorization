@@ -15,10 +15,10 @@ namespace kdyf.Authorization.Migrations.Test;
 [TestClass]
 public sealed class SchemaVersionCheckTests
 {
-    private static async Task StartAsync(TestDatabase db, bool require = false)
+    private static async Task StartAsync(TestDatabase db, bool require = false, bool userProfiles = false)
     {
         var services = new ServiceCollection();
-        var options = new AuthorizationStoreOptions { RequireSchemaVersion = require };
+        var options = new AuthorizationStoreOptions { RequireSchemaVersion = require, UserProfiles = userProfiles };
         services.AddSingleton(Options.Create(options));
         services.AddDbContext<AuthorizationDbContext>(o => o.UseSqlServer(db.ConnectionString));
         await using var provider = services.BuildServiceProvider();
@@ -59,9 +59,24 @@ public sealed class SchemaVersionCheckTests
         await using var db = await TestDatabase.CreateAsync();
         await db.ExecuteAsync(Fixtures.HostScriptVersion1);
 
-        var error = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => StartAsync(db));
+        var error = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => StartAsync(db, userProfiles: true));
 
         StringAssert.Contains(error.Message, "kdyf-auth adopt");
+        await StartAsync(db); // without UserProfiles the six tables are all it needs
+    }
+
+    /// <summary>The version a host requires follows its UserProfiles setting.</summary>
+    [TestMethod]
+    public async Task The_required_version_follows_the_profiles()
+    {
+        await using var db = await TestDatabase.CreateAsync();
+        await new SchemaMigrator(db.ConnectionString).ApplyAsync(); // version 3
+
+        await StartAsync(db);
+        var error = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => StartAsync(db, userProfiles: true));
+
+        StringAssert.Contains(error.Message, "at version 3");
+        StringAssert.Contains(error.Message, "requires 4");
     }
 
     [TestMethod]
