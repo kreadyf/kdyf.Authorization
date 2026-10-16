@@ -29,6 +29,19 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Kdyf-Ci-Only-1!x"   # a throwaway container of this job, not a secret
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $MSSQL_SA_PASSWORD -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
 
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +70,8 @@ jobs:
         run: dotnet build kdyf.Authorization.slnx --configuration Release -warnaserror -p:VersionSuffix=${{ steps.suffix.outputs.value }}
 
       - name: Test
+        env:
+          KDYF_AUTHZ_TEST_SQLSERVER: "Server=localhost,1433;User ID=sa;Password=Kdyf-Ci-Only-1!x;TrustServerCertificate=true;Encrypt=true;Connect Timeout=60"
         run: dotnet test kdyf.Authorization.slnx --configuration Release --no-build
 
       - name: Pack

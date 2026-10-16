@@ -1,0 +1,107 @@
+# Publish a version: push a tag v<version> on master (v1.0.0-preview.3, v1.0.0).
+# Builds and tests the tagged commit, packs every package with the tag's version, publishes them to nuget.org and
+# creates the GitHub release with the packages attached — a pre-release when the version has a suffix.
+#
+# No API key is stored anywhere: nuget.org trusts this workflow (Trusted Publishing, OIDC) and hands it a key that lasts
+# one hour. One-off setup on nuget.org (Account -> Trusted Publishing -> add a policy):
+#   Repository Owner: kreadyf   Repository: kdyf.Authorization   Workflow File: release.yml   Environment: nuget
+#   Scopes: publish new packages and new versions, pattern kdyf.Authorization*
+# and in the repository, the variable NUGET_USER (Settings -> Secrets and variables -> Actions -> Variables): the nuget.org
+# profile name, not the e-mail address. The job runs in the "nuget" environment, which can require an approval.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # the GitHub release
+  id-token: write   # the OIDC token that nuget.org exchanges for a short-lived API key
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Kdyf-Ci-Only-1!x"   # a throwaway container of this job, not a secret
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $MSSQL_SA_PASSWORD -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    environment: nuget
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version from the tag
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          # SemVer 2 as NuGet reads it: 1.2.3, 1.2.3-preview.4. A leading zero in a number is refused (preview.01).
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$ ]]; then
+            echo "::error::The tag '$tag' is not v<SemVer 2 version>, e.g. v1.0.0-preview.2 or v1.0.0."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          [[ "$version" == *-* ]] && echo "prerelease=true" >> "$GITHUB_OUTPUT" || echo "prerelease=false" >> "$GITHUB_OUTPUT"
+
+      # Only what is on master is published: a tag on another branch stops here.
+      - name: The tag is on master
+        run: |
+          git fetch origin master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::$GITHUB_REF_NAME is not on master. Merge develop into master and tag master."
+            exit 1
+          fi
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build kdyf.Authorization.slnx --configuration Release -warnaserror -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Test
+        env:
+          KDYF_AUTHZ_TEST_SQLSERVER: "Server=localhost,1433;User ID=sa;Password=Kdyf-Ci-Only-1!x;TrustServerCertificate=true;Encrypt=true;Connect Timeout=60"
+        run: dotnet test kdyf.Authorization.slnx --configuration Release --no-build
+
+      - name: Pack
+        run: >
+          dotnet pack kdyf.Authorization.slnx --configuration Release --no-build --output artifacts/packages
+          -p:Version=${{ steps.version.outputs.version }}
+
+      # The key lives one hour: asked for right before the push, after the build and the tests.
+      - name: NuGet login (OIDC -> short-lived API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Publish to nuget.org
+        run: >
+          dotnet nuget push "artifacts/packages/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=(--generate-notes --title "kdyf.Authorization ${{ steps.version.outputs.version }}")
+          [ "${{ steps.version.outputs.prerelease }}" = "true" ] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" artifacts/packages/* "${flags[@]}"

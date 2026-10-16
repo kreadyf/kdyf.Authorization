@@ -1,0 +1,82 @@
+# Build, test and pack on every push and pull request to develop and master.
+# Warnings are errors: the packages ship their XML documentation, and a public API without it is a defect.
+
+name: CI
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+    branches: [develop, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Kdyf-Ci-Only-1!x"   # a throwaway container of this job, not a secret
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $MSSQL_SA_PASSWORD -C -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # SourceLink and the package's repository commit need the history
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore kdyf.Authorization.slnx
+
+      - name: Build
+        run: dotnet build kdyf.Authorization.slnx --configuration Release --no-restore -warnaserror
+
+      - name: Test
+        env:
+          KDYF_AUTHZ_TEST_SQLSERVER: "Server=localhost,1433;User ID=sa;Password=Kdyf-Ci-Only-1!x;TrustServerCertificate=true;Encrypt=true;Connect Timeout=60"
+        run: >
+          dotnet test kdyf.Authorization.slnx --configuration Release --no-build
+          --logger "trx;LogFilePrefix=results" --results-directory TestResults
+
+      - name: Test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/**/*.trx
+          if-no-files-found: ignore
+
+      # The packages as they would be published, with a CI suffix: proves they pack, and lets anybody try a branch.
+      - name: Pack
+        run: >
+          dotnet pack kdyf.Authorization.slnx --configuration Release --no-build --output artifacts/packages
+          -p:VersionSuffix=ci.${{ github.run_number }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/packages/*
+          retention-days: 14

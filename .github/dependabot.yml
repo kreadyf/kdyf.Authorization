@@ -1,0 +1,21 @@
+# Weekly pull requests for outdated or vulnerable dependencies: the NuGet packages (Directory.Packages.props) and the
+# GitHub Actions the workflows use. Microsoft's packages are grouped, so a .NET servicing release is one pull request.
+
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    groups:
+      microsoft:
+        patterns: ['Microsoft.*', 'System.*', 'Azure.*']
+      test:
+        patterns: ['MSTest.*', 'Moq', 'coverlet.*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
