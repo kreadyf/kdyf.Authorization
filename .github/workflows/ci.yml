@@ -44,7 +44,7 @@ jobs:
         with:
           fetch-depth: 0   # SourceLink and the package's repository commit need the history
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
