@@ -15,10 +15,19 @@ namespace kdyf.Authorization.Abstractions
     }
 
     /// <summary>
-    /// Records that a person was seen: their permissions were resolved for a request (a sign-in, a token). Called on a
-    /// cache miss only, so at most once per cache duration per person and instance.
+    /// Records that a person signed in: a request of their own session (on a cache miss of their permissions).
     /// </summary>
-    /// <remarks>Never in the way: a failure is logged by the caller and the request goes on.</remarks>
+    /// <remarks>
+    /// <para>
+    /// Not when somebody else's permissions are resolved: the vault listing who may use it, the administration valuing a
+    /// token, a simulation borrowing a person's permissions, or a background job. None of those is that person's access.
+    /// </para>
+    /// <para>
+    /// Not when one of their personal access tokens is used either: a token is an integration, not the person, and has
+    /// its own last use (<c>PersonalAccessToken.lastUsedAt</c>).
+    /// </para>
+    /// <para>Never in the way: a failure is logged by the caller and the request goes on.</para>
+    /// </remarks>
     public interface IUserActivityRecorder
     {
         Task RecordAsync(UserIdentity user, CancellationToken cancellationToken = default);

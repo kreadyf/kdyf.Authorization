@@ -1,4 +1,6 @@
 using kdyf.Authorization.Abstractions;
+using kdyf.Authorization.Simulation;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
 namespace kdyf.Authorization.Roles
@@ -42,6 +44,9 @@ namespace kdyf.Authorization.Roles
         private readonly ILogger<MembershipPermissionStore> _logger;
         private readonly IUserSuspensionSource? _suspensions;
         private readonly IUserActivityRecorder? _activity;
+        private readonly IHttpContextAccessor? _http;
+        private readonly IUserIdentityResolver? _identities;
+        private readonly UserSimulationOptions? _simulation;
 
         /// <param name="membership">The access group.</param>
         /// <param name="userRoles">Who holds which role.</param>
@@ -49,13 +54,22 @@ namespace kdyf.Authorization.Roles
         /// <param name="logger">The log.</param>
         /// <param name="suspensions">Who the application suspended. Optional: without it nobody is.</param>
         /// <param name="activity">Where the last access is recorded. Optional.</param>
+        /// <param name="http">
+        /// The request, to tell a person's own lookup from somebody else's. Without it (or outside a request) nothing is
+        /// recorded: a lookup nobody made for themselves is not an access.
+        /// </param>
+        /// <param name="identities">Who the request is from.</param>
+        /// <param name="simulation">How a simulated request is marked; a simulated request is nobody's access.</param>
         public MembershipPermissionStore(
             IMembershipSource membership,
             IUserRoleSource userRoles,
             RolePermissionMapProvider roles,
             ILogger<MembershipPermissionStore> logger,
             IUserSuspensionSource? suspensions = null,
-            IUserActivityRecorder? activity = null)
+            IUserActivityRecorder? activity = null,
+            IHttpContextAccessor? http = null,
+            IUserIdentityResolver? identities = null,
+            UserSimulationOptions? simulation = null)
         {
             _membership = membership;
             _userRoles = userRoles;
@@ -63,6 +77,9 @@ namespace kdyf.Authorization.Roles
             _logger = logger;
             _suspensions = suspensions;
             _activity = activity;
+            _http = http;
+            _identities = identities;
+            _simulation = simulation;
         }
 
         public async Task<IReadOnlySet<string>> GetPermissionsAsync(UserIdentity user, CancellationToken cancellationToken = default)
@@ -105,9 +122,14 @@ namespace kdyf.Authorization.Roles
         }
 
         /// <summary>Somebody with access was seen. A failure to write it never denies them.</summary>
+        /// <remarks>
+        /// Only the person's own request is an access. The store also answers for somebody else — the vault listing
+        /// who may use it, the administration valuing a token, a simulation borrowing the target's permissions — and
+        /// none of those means that person came by.
+        /// </remarks>
         private async Task RecordActivityAsync(UserIdentity user)
         {
-            if (_activity is null)
+            if (_activity is null || !IsTheCaller(user))
                 return;
             try
             {
@@ -118,5 +140,25 @@ namespace kdyf.Authorization.Roles
                 _logger.LogWarning(ex, "The last access of {Subject} could not be recorded.", user.SubjectId);
             }
         }
+
+        /// <summary>Whether the request being served is this person's own, and not a simulation.</summary>
+        private bool IsTheCaller(UserIdentity user)
+        {
+            var principal = _http?.HttpContext?.User;
+            if (principal?.Identity?.IsAuthenticated != true || _identities is null)
+                return false;
+
+            // A simulated request is the administrator's, wearing the target's identity: it is neither's access.
+            if (_simulation is not null && principal.HasClaim(c => c.Type == _simulation.SimulatedByObjectIdClaimType))
+                return false;
+
+            var caller = _identities.Resolve(principal)?.SubjectId;
+            return !string.IsNullOrWhiteSpace(caller) && SameSubject(caller, user.SubjectId!);
+        }
+
+        private static bool SameSubject(string a, string b) =>
+            Guid.TryParse(a, out var x) && Guid.TryParse(b, out var y)
+                ? x == y
+                : string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 }

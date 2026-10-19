@@ -18,6 +18,7 @@ namespace kdyf.Authorization.Migrations.Schema
     /// kdyf-auth adopt                      apply, only on a database that is adopted (the reference schema today)
     /// kdyf-auth verify                     the schema equals its version's manifest
     /// kdyf-auth cutover                    mark CutoverCompleted (closes the legacy import)
+    /// kdyf-auth migrate [--finalize]       the commands of a migration in their order (see <see cref="MigrateCommand"/>)
     ///
     /// --schema &lt;name&gt;  --app-user &lt;user&gt;  --approve &lt;what&gt; (repeatable)  --backup-confirmed  --host-version &lt;v&gt;
     /// </code>
@@ -42,6 +43,12 @@ namespace kdyf.Authorization.Migrations.Schema
               adopt              Like apply, only on a database in the shape of version 1 without a history.
               verify             The schema is at the required version and equals its manifest. Read-only.
               cutover            Record CutoverCompleted: from then on the legacy import refuses to run.
+              migrate [--approve unresolved-users]
+                                 Everything that can be repeated, in order, stopping where one refuses: apply, then (when
+                                 a legacy schema is there) resolve and import apply, then verify. In the host for a legacy schema.
+              migrate --finalize --approver <name> --confirm [--rollback-window 48h]
+                                 What cannot be repeated: the cutover, then (after the window) the contraction and the
+                                 promotion of the new schema to the legacy name. Run it again after the window.
               legacy-report      What a legacy kdyf.auth.* schema holds and what its import would decide. Read-only.
               resolve            (host) Resolve the legacy users in Entra and snapshot both gates. --incremental keeps the unchanged.
               identities export <file> | import <file> --approver <name>
@@ -55,9 +62,11 @@ namespace kdyf.Authorization.Migrations.Schema
                                  (host) The automatic go/no-go, then CutoverCompleted and the rollback window.
               rollback-sync plan | apply
                                  Take the revocations made since the cutover back to the legacy schema. Never grants.
-              contract rename | drop | promote --confirm
+              contract rename | drop | promote | cleanup --confirm
                                  After the window: the legacy schema renamed to <schema>_legacy_<date>, later dropped;
-                                 then promote: the new schema takes the legacy name (authz -> auth), role included.
+                                 then promote: the new schema takes the legacy name (authz -> auth), role included;
+                                 cleanup: the import's working tables (they hold e-mails) are dropped, what was approved
+                                 stays in the run log.
               exceptions import <file> --approver <name>
                                  (host) The approved exceptions to the invariant (JSON); the file replaces the previous set.
 
@@ -98,6 +107,8 @@ namespace kdyf.Authorization.Migrations.Schema
             var userProfiles = services?.GetService<IOptions<AuthorizationStoreOptions>>()?.Value.UserProfiles ?? false;
             if (args.Skip(1).Any(a => a == "--user-profiles"))
                 userProfiles = true;
+            if (command == "migrate")
+                return await MigrateCommand.RunAsync(args, connectionString, defaultSchema, services, userProfiles, output, cancellationToken);
             if (Legacy.LegacyCommands.Handles(command))
             {
                 // The import fills UserProfile (the legacy ids, who is suspended) and reads it back: no profiles, no import.

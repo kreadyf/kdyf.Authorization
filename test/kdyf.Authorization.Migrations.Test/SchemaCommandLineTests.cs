@@ -90,7 +90,9 @@ public sealed class SchemaCommandLineTests
     public async Task Wrong_arguments_are_a_usage_error_without_touching_the_database()
     {
         Assert.AreEqual(SchemaCommandLine.Usage, (await RunAsync(null)).Code);
-        Assert.AreEqual(SchemaCommandLine.Usage, (await RunAsync(null, "migrate")).Code);
+        Assert.AreEqual(SchemaCommandLine.Usage, (await RunAsync(null, "frobnicate")).Code);
+        Assert.AreEqual(SchemaCommandLine.Usage, (await RunAsync(null, "migrate", "--bogus")).Code);
+        Assert.AreEqual(SchemaCommandLine.Usage, (await RunAsync(null, "migrate", "--approver")).Code);
         Assert.AreEqual(SchemaCommandLine.Usage, (await RunAsync(null, "apply", "--approve", "everything")).Code);
         Assert.AreEqual(SchemaCommandLine.Usage, (await RunAsync(null, "apply", "--schema")).Code);
         Assert.AreEqual(SchemaCommandLine.Usage, (await RunAsync(null, "apply", "--schema", "a b")).Code);

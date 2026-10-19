@@ -327,6 +327,55 @@ namespace kdyf.Authorization.Migrations.Legacy
                    + $"Set the application's schema to '{to}' (remove the Schema override) and deploy now.";
         }
 
+        /// <summary>
+        /// The last tidy-up of a migrated schema: the working tables of the import (<c>MigrationIdentity</c>,
+        /// <c>MigrationGateSnapshot</c>, <c>MigrationIssue</c> and <c>MigrationException</c>) are dropped. They hold e-mails and
+        /// the application never reads them. What was approved in the exceptions stays in the run log (kind, reason, who), and the
+        /// history, the legacy role map and the profiles are kept. Only after the rollback window has closed.
+        /// </summary>
+        public static async Task<string> CleanupAsync(string connectionString, string target, DateTime now, CancellationToken cancellationToken)
+        {
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            var window = await WindowAsync(connection, target, cancellationToken)
+                         ?? throw new InvalidOperationException($"[{target}] has not been cut over: the import's tables are still needed.");
+            if (now < window.WindowEnds)
+                throw new InvalidOperationException($"The rollback window closes at {window.WindowEnds:u}: the import's tables are needed until then.");
+
+            var present = new List<string>();
+            foreach (var table in new[] { MigrationStore.IdentityTable, MigrationStore.GateTable, "MigrationIssue", InvariantExceptions.Table })
+                if (await ScalarAsync(connection, null, "SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID(@schema) AND name = @table", cancellationToken, ("@schema", target), ("@table", table)) > 0)
+                    present.Add(table);
+            if (present.Count == 0)
+                return $"Nothing to clean: the import's tables are gone from [{target}] already.";
+
+            var approved = new List<object>();
+            if (present.Contains(InvariantExceptions.Table))
+            {
+                await using var read = connection.CreateCommand();
+                read.CommandText = $"SELECT Kind, Reason, ApprovedBy, ApprovedAt FROM [{target}].[{InvariantExceptions.Table}] ORDER BY ExceptionId";
+                await using var reader = await read.ExecuteReaderAsync(cancellationToken);
+                while (await reader.ReadAsync(cancellationToken))
+                    approved.Add(new { kind = reader.GetString(0), reason = reader.GetString(1), approvedBy = reader.GetString(2), approvedAt = reader.GetDateTime(3) });
+            }
+            var report = System.Text.Json.JsonSerializer.Serialize(new { dropped = present, approvedExceptions = approved });
+
+            var sql = new StringBuilder();
+            foreach (var table in present)
+                sql.AppendLine($"DROP TABLE [{target}].[{table}];");
+            sql.AppendLine($"""
+                INSERT INTO [{target}].[{SchemaHistory.LogTable}] (RunId, StartedAt, EndedAt, Machine, PackageVersion, Mode, Result, Report)
+                VALUES (NEWID(), SYSUTCDATETIME(), SYSUTCDATETIME(), @machine, @version, 'cleanup', 'Succeeded', @report);
+                """);
+            await using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+            {
+                await ExecuteAsync(connection, transaction, sql.ToString(), cancellationToken,
+                    ("@machine", Environment.MachineName), ("@version", SchemaMigrator.PackageVersion), ("@report", report));
+                await transaction.CommitAsync(cancellationToken);
+            }
+            return $"Dropped {present.Count} working table(s) of the import from [{target}]: {string.Join(", ", present)}. What was approved stays in the run log.";
+        }
+
         private static async Task<int> ScalarAsync(
             DbConnection connection, DbTransaction? transaction, string sql, CancellationToken cancellationToken, params (string Name, object? Value)[] parameters)
         {

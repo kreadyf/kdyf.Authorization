@@ -65,6 +65,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
             if (effective.Count == 0)
                 return null;
 
+            // The token's own last use. Not the owner's last sign-in: a token is an integration, not the person.
             await TouchLastUsedAsync(pat.PersonalAccessTokenId, pat.LastUsedAt, now, cancellationToken);
 
             return new PatPrincipal(pat.Name, effective);

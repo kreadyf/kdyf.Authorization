@@ -146,6 +146,29 @@ kdyf-auth verify
 role `kdyf_{schema}_runtime`, which may read the version but not write the history, and may insert into the audit log but
 not change it. That only holds if the user is not `db_owner` or `db_datawriter`.
 
+Migrating a host that still has the legacy `kdyf.auth.*` schema takes one command per stage, run in the host
+(`<host> kdyf-auth ...`, with `AddKdyfAuthorizationLegacyImport`):
+
+```bash
+kdyf-auth migrate                      # apply, resolve the users, import, verify: repeatable, the legacy schema stays as it is
+kdyf-auth migrate --finalize --approver me --confirm [--rollback-window 48h]
+                                       # the cutover, then (after the window) the contraction and the promotion to the legacy name
+```
+
+`migrate` runs the commands it names (`apply`, `resolve --incremental`, `import apply`, `verify`) and stops at the
+first that refuses, with what stands in the way; the commands keep working one by one. It decides nothing for a person:
+users it cannot resolve are decided with `identities export|import`, or their loss is approved with
+`--approve unresolved-users`, and what each person loses is accepted with `import reductions-accept`. `--finalize`
+cannot be repeated by mistake: it needs `--confirm`, and with a rollback window it is run twice (the cutover now, the
+contraction when the window has closed). Afterwards the host's `Schema` override is removed and the application is
+deployed. A database that was never on the new model needs `--schema authz` (the schema the copy is built in) on both
+forms: without it the legacy and the target schema have the same name and there is nothing to import.
+
+Once the window has closed and the application runs on the new schema, `kdyf-auth contract cleanup --confirm` drops the
+import's working tables (`MigrationIdentity`, `MigrationGateSnapshot`, `MigrationIssue`, `MigrationException`: they hold
+e-mails and nothing reads them); what was approved stays in the run log. `contract drop --legacy-schema <name> --confirm`
+removes the renamed legacy schema when it is no longer wanted.
+
 When the host starts it checks the version: below the required one, or with a failed step, it does not start; without a
 history it only warns, until `RequireSchemaVersion` is set in the section.
 

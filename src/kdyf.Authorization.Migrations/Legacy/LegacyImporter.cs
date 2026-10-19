@@ -221,7 +221,11 @@ namespace kdyf.Authorization.Migrations.Legacy
                     tokenPrefix NVARCHAR(12) COLLATE DATABASE_DEFAULT NULL, ownerObjectId NVARCHAR(50) COLLATE DATABASE_DEFAULT NOT NULL,
                     ownerLabel NVARCHAR(256) COLLATE DATABASE_DEFAULT NOT NULL, isActive BIT NOT NULL, expiresAt DATETIME2 NULL, createdAt DATETIME2 NOT NULL, lastUsedAt DATETIME2 NULL);
                 CREATE TABLE #UserMap (UserId INT NOT NULL PRIMARY KEY, objectId VARCHAR(50) COLLATE DATABASE_DEFAULT NOT NULL);
+                CREATE TABLE #AutoRole (RoleId INT NOT NULL PRIMARY KEY, roleValue VARCHAR(100) COLLATE {SchemaManifest.Bin2} NOT NULL);
                 """, cancellationToken);
+
+            foreach (var (roleId, roleValue) in plan.AutoProvisionedRoles)
+                await ExecuteAsync(connection, transaction, "INSERT INTO #AutoRole VALUES (@id, @value)", cancellationToken, ("@id", roleId), ("@value", roleValue));
 
             foreach (var r in plan.Roles)
                 await ExecuteAsync(connection, transaction, "INSERT INTO #Role VALUES (@id, @value, @name, @description)", cancellationToken,
@@ -265,6 +269,9 @@ namespace kdyf.Authorization.Migrations.Legacy
 
             // 2. Roles and the permanent map. A role copied once keeps its value; one gone from the legacy schema goes here too.
             var mapped = await CountAsync(connection, transaction, $"INSERT INTO [{s}].[LegacyRoleMap] (RoleId, roleValue) SELECT r.RoleId, r.roleValue FROM #Role r WHERE NOT EXISTS (SELECT 1 FROM [{s}].[LegacyRoleMap] m WHERE m.RoleId = r.RoleId)", cancellationToken);
+            // The auto-provisioned role is not a role of the new model, but its number stays reserved in the map (nothing else is written for it).
+            mapped += await CountAsync(connection, transaction,
+                $"INSERT INTO [{s}].[LegacyRoleMap] (RoleId, roleValue) SELECT a.RoleId, a.roleValue FROM #AutoRole a WHERE NOT EXISTS (SELECT 1 FROM [{s}].[LegacyRoleMap] m WHERE m.RoleId = a.RoleId OR m.roleValue = a.roleValue)", cancellationToken);
             var userRolesDeleted = await CountAsync(connection, transaction, $"DELETE FROM [{s}].[UserRole]", cancellationToken);
             var rolesDeleted = await CountAsync(connection, transaction,
                 $"DELETE t FROM [{s}].[Role] t WHERE t.roleValue IN (SELECT roleValue FROM [{s}].[LegacyRoleMap]) AND NOT EXISTS (SELECT 1 FROM #Role r WHERE r.roleValue = t.roleValue)", cancellationToken);

@@ -264,6 +264,14 @@ public sealed class LegacyImportTests
         Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role WHERE roleValue = 'empty-role'"));
         Assert.AreEqual(0, await db.ScalarAsync<int>($"SELECT COUNT(*) FROM authz.UserRole WHERE objectId = '{Nothing}'"));
         Assert.IsFalse(await db.ScalarAsync<bool>("SELECT isActive FROM authz.PersonalAccessToken WHERE PersonalAccessTokenId = 1"));
+
+        // Not a role of the new model, but its number stays reserved: what a host stored by that number (a vault entry shared with it) keeps its meaning.
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.LegacyRoleMap WHERE RoleId = 3 AND roleValue = 'empty-role'"));
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.LegacyRoleMap"), "the two copied roles and the reserved one");
+
+        var again = await ImportAsync(db, settings: new LegacyImportSettings { AutoProvisionedRole = "empty role", BootstrapTokenHash = "0101010101010101010101010101010101010101010101010101010101010101" });
+        Assert.IsTrue(again.Applied, LegacyImporter.ToText(again));
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.LegacyRoleMap"), "repeating it writes nothing more");
     }
 
     [TestMethod]
@@ -475,6 +483,202 @@ public sealed class LegacyImportTests
         Assert.AreEqual(1, await db.ScalarAsync<int>(
             "SELECT COUNT(*) FROM sys.database_permissions p JOIN sys.database_principals r ON r.principal_id = p.grantee_principal_id " +
             "WHERE r.name = 'kdyf_auth_runtime' AND p.major_id = OBJECT_ID('auth.AuditLog') AND p.permission_name = 'DELETE' AND p.state = 'D'"), "and still not deletable");
+    }
+
+    // ── kdyf-auth migrate ────────────────────────────────────────────────────
+
+    /// <summary>The host's services for the commands: a directory that knows users 1, 2 and 4 (not 3, who has no object id).</summary>
+    private static ServiceProvider CommandServices() =>
+        new ServiceCollection()
+            .AddSingleton<ILegacyDirectory>(new KnownDirectory()).AddSingleton<IMembershipSource>(new KnownDirectory())
+            .AddKdyfAuthorizationLegacyImport(o => o.LegacyGroupId = Guid.NewGuid().ToString())
+            .AddSingleton(Microsoft.Extensions.Options.Options.Create(new kdyf.Authorization.EntityFrameworkCore.AuthorizationStoreOptions { UserProfiles = true }))
+            .AddSingleton(new kdyf.Authorization.Roles.DeclaredPermissions(Declared))
+            .BuildServiceProvider();
+
+    private static async Task<(int Code, string Output)> CommandAsync(TestDatabase db, ServiceProvider? services, params string[] args)
+    {
+        var output = new StringWriter();
+        var code = await SchemaCommandLine.RunAsync(args, db.ConnectionString, Target, output, services);
+        return (code, output.ToString());
+    }
+
+    /// <summary>The legacy schema and its data, with nothing of the target yet.</summary>
+    private static async Task<TestDatabase> LegacyOnlyAsync()
+    {
+        var db = await TestDatabase.CreateAsync();
+        await db.ExecuteAsync(LegacyFixtures.ShapeC);
+        await db.ExecuteAsync(LegacyFixtures.Data);
+        await db.ExecuteAsync(LegacyFixtures.TokenData);
+        await db.ExecuteAsync(AuditData);
+        return db;
+    }
+
+    [TestMethod]
+    public async Task Migrate_on_a_database_without_a_legacy_schema_installs_and_verifies()
+    {
+        await using var db = await TestDatabase.CreateAsync();
+
+        var (code, text) = await CommandAsync(db, null, "migrate", "--user-profiles");
+
+        Assert.AreEqual(SchemaCommandLine.Ok, code, text);
+        StringAssert.Contains(text, "== apply [authz]");
+        StringAssert.Contains(text, "Verified.");
+        StringAssert.Contains(text, "Done.");
+        Assert.AreEqual((await CommandAsync(db, null, "migrate", "--user-profiles")).Code, SchemaCommandLine.Ok, "repeatable");
+    }
+
+    [TestMethod]
+    public async Task Migrate_stops_at_a_legacy_schema_when_the_host_cannot_import_it()
+    {
+        await using var db = await LegacyOnlyAsync();
+
+        var (code, text) = await CommandAsync(db, null, "migrate", "--user-profiles");
+
+        Assert.AreEqual(SchemaCommandLine.Usage, code, text);
+        StringAssert.Contains(text, "runs in the host");
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"), "installed, nothing copied");
+    }
+
+    [TestMethod]
+    public async Task Migrate_stops_where_a_person_has_to_decide_and_goes_on_once_they_have()
+    {
+        await using var db = await LegacyOnlyAsync();
+        await using var services = CommandServices();
+
+        // User 3 has no object id and the directory does not know their e-mail: a person has to decide.
+        var (stopped, text) = await CommandAsync(db, services, "migrate");
+        Assert.AreEqual(SchemaCommandLine.NotDone, stopped, text);
+        StringAssert.Contains(text, "left to a person");
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"), "nothing copied");
+
+        // Their loss approved, and the token that stops validating with it, the copy goes through.
+        await ApproveAsync(db, new InvariantException(InvariantKinds.TokenCount, null, null, -1, "user 3 has no identity", "test"));
+        var (done, text2) = await CommandAsync(db, services, "migrate", "--approve", "unresolved-users");
+        Assert.AreEqual(SchemaCommandLine.Ok, done, text2);
+        StringAssert.Contains(text2, "Migrated into [authz]");
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"));
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.Role"), "the legacy schema is untouched");
+
+        var (again, text3) = await CommandAsync(db, services, "migrate", "--approve", "unresolved-users");
+        Assert.AreEqual(SchemaCommandLine.Ok, again, text3);
+    }
+
+    [TestMethod]
+    public async Task Finalize_asks_for_who_approves_and_for_the_confirmation()
+    {
+        await using var db = await LegacyOnlyAsync();
+        await using var services = CommandServices();
+
+        Assert.AreEqual(SchemaCommandLine.Usage, (await CommandAsync(db, services, "migrate", "--finalize")).Code);
+        Assert.AreEqual(SchemaCommandLine.Usage, (await CommandAsync(db, services, "migrate", "--finalize", "--confirm")).Code, "no approver");
+        Assert.AreEqual(SchemaCommandLine.Usage, (await CommandAsync(db, services, "migrate", "--finalize", "--approver", "carlos")).Code, "no confirmation");
+    }
+
+    /// <summary>Migrated, with what each person loses accepted: ready for the finalization.</summary>
+    private static async Task<(TestDatabase Db, ServiceProvider Services)> MigratedAsync()
+    {
+        var db = await LegacyOnlyAsync();
+        var services = CommandServices();
+        await CommandAsync(db, services, "migrate", "--approve", "unresolved-users"); // installs; the copy waits for the exception
+        await ApproveAsync(db, new InvariantException(InvariantKinds.TokenCount, null, null, -1, "user 3 has no identity", "test"));
+        var migrated = await CommandAsync(db, services, "migrate", "--approve", "unresolved-users");
+        Assert.AreEqual(SchemaCommandLine.Ok, migrated.Code, migrated.Output);
+        var accepted = await CommandAsync(db, services, "import", "reductions-accept", "--approver", "carlos", "--approve", "unresolved-users");
+        Assert.AreEqual(SchemaCommandLine.Ok, accepted.Code, accepted.Output);
+        return (db, services);
+    }
+
+    [TestMethod]
+    public async Task Finalize_cuts_over_and_waits_for_the_window_before_the_contraction()
+    {
+        var (db, services) = await MigratedAsync();
+        await using var _ = db;
+        await using var __ = services;
+
+        var (code, text) = await CommandAsync(db, services, "migrate", "--finalize", "--approver", "carlos", "--confirm", "--approve", "unresolved-users");
+
+        Assert.AreEqual(SchemaCommandLine.Ok, code, text);
+        StringAssert.Contains(text, "rollback window closes at");
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.SchemaMarker WHERE Name = 'CutoverCompleted'"));
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.Role"), "the legacy schema is still there");
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.schemas WHERE name = 'authz'"));
+    }
+
+    [TestMethod]
+    public async Task Finalize_without_a_window_leaves_only_the_new_model_under_the_legacy_name()
+    {
+        var (db, services) = await MigratedAsync();
+        await using var _ = db;
+        await using var __ = services;
+
+        var (code, text) = await CommandAsync(db, services, "migrate", "--finalize", "--approver", "carlos", "--confirm", "--approve", "unresolved-users", "--rollback-window", "0h");
+
+        Assert.AreEqual(SchemaCommandLine.Ok, code, text);
+        StringAssert.Contains(text, "Done: the model lives in [auth]");
+        Assert.IsNull(await db.ScalarAsync<object>("SELECT SCHEMA_ID('authz')"), "the staging schema is gone");
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.Role"));
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.LegacyRoleMap"), "auth is the new model now");
+        Assert.AreEqual(1, await db.ScalarAsync<int>($"SELECT COUNT(*) FROM sys.schemas WHERE name = 'auth_legacy_{DateTime.UtcNow:yyyyMMdd}'"), "the legacy tables are kept under another name");
+
+        var (again, text2) = await CommandAsync(db, services, "migrate", "--finalize", "--approver", "carlos", "--confirm", "--approve", "unresolved-users", "--rollback-window", "0h");
+        Assert.AreEqual(SchemaCommandLine.Ok, again, text2);
+        StringAssert.Contains(text2, "nothing to finalize");
+    }
+
+    private static readonly string[] WorkingTables = { "MigrationIdentity", "MigrationGateSnapshot", "MigrationIssue", "MigrationException" };
+
+    private static Task<int> TablesAsync(TestDatabase db, string schema) =>
+        db.ScalarAsync<int>($"SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('{schema}') AND name IN ({string.Join(", ", WorkingTables.Select(t => $"'{t}'"))})");
+
+    [TestMethod]
+    public async Task The_cleanup_waits_for_the_window_and_keeps_what_was_approved_in_the_log()
+    {
+        await using var db = await CutOverAsync();
+        Assert.AreEqual(4, await TablesAsync(db, Target), "the import's tables are there");
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.CleanupAsync(db.ConnectionString, Target, DateTime.UtcNow, default));
+        Assert.AreEqual(4, await TablesAsync(db, Target), "refused: nothing dropped");
+
+        var said = await LegacyCutover.CleanupAsync(db.ConnectionString, Target, DateTime.UtcNow.AddDays(3), default);
+
+        StringAssert.Contains(said, "Dropped 4 working table(s)");
+        Assert.AreEqual(0, await TablesAsync(db, Target));
+        Assert.AreEqual(7, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('authz') AND name IN ('Role','RolePermission','UserRole','Permission','PersonalAccessToken','AuditLog','UserProfile')"), "the model stays");
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('authz') AND name = 'LegacyRoleMap'"), "and the role map");
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.SchemaMigrationLog WHERE Mode = 'cleanup' AND Report LIKE '%user 3 has no identity%'"), "the approval stays in the log");
+
+        StringAssert.Contains(await LegacyCutover.CleanupAsync(db.ConnectionString, Target, DateTime.UtcNow.AddDays(3), default), "Nothing to clean");
+    }
+
+    [TestMethod]
+    public async Task The_cleanup_command_wants_the_confirmation_and_runs_on_the_promoted_schema()
+    {
+        var (db, services) = await MigratedAsync();
+        await using var _ = db;
+        await using var __ = services;
+        await CommandAsync(db, services, "migrate", "--finalize", "--approver", "carlos", "--confirm", "--approve", "unresolved-users", "--rollback-window", "0h");
+
+        Assert.AreEqual(SchemaCommandLine.Usage, (await CommandAsync(db, services, "contract", "cleanup", "--schema", "auth")).Code, "no confirmation");
+        Assert.AreEqual(4, await TablesAsync(db, "auth"));
+
+        var (code, text) = await CommandAsync(db, services, "contract", "cleanup", "--confirm", "--schema", "auth");
+
+        Assert.AreEqual(SchemaCommandLine.Ok, code, text);
+        Assert.AreEqual(0, await TablesAsync(db, "auth"));
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.Role"), "the model is untouched");
+    }
+
+    private sealed class KnownDirectory : ILegacyDirectory, IMembershipSource
+    {
+        private static readonly string[] Known = { Admin, Reader, Nothing };
+
+        public Task<DirectoryPerson?> GetAsync(string objectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(Known.Contains(objectId, StringComparer.OrdinalIgnoreCase) ? new DirectoryPerson(objectId, null, null, "Member", true) : null);
+        public Task<IReadOnlyList<DirectoryPerson>> FindExactAsync(string email, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DirectoryPerson>>(Array.Empty<DirectoryPerson>());
+        public Task<bool> InLegacyGroupAsync(string objectId, CancellationToken cancellationToken = default) => Task.FromResult(true);
+        public Task<Membership?> GetMembershipAsync(string subjectId, CancellationToken cancellationToken = default) => Task.FromResult<Membership?>(new Membership(true, true));
+        public Task<DirectoryIdentity?> FindByEmailAsync(string email, CancellationToken cancellationToken = default) => Task.FromResult<DirectoryIdentity?>(null);
     }
 
     private sealed class NoDirectory : ILegacyDirectory, IMembershipSource

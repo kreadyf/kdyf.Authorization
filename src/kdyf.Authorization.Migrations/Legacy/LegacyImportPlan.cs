@@ -67,6 +67,13 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>Legacy role id → role value, for every role copied.</summary>
         public required IReadOnlyDictionary<int, string> RoleMap { get; init; }
 
+        /// <summary>
+        /// Legacy role id → role value, for the auto-provisioned role (<see cref="LegacyImportSettings.AutoProvisionedRole"/>): it is not
+        /// copied as a role, but its number is kept in <c>LegacyRoleMap</c>, because what a host stored by that number (a vault entry shared
+        /// with <c>Default</c>, that is, with everybody who signed in) has to keep meaning it.
+        /// </summary>
+        public IReadOnlyDictionary<int, string> AutoProvisionedRoles { get; init; } = new Dictionary<int, string>();
+
         public required IReadOnlyList<ImportIssue> Issues { get; init; }
 
         public bool HasBlockers => Issues.Any(i => i.Severity == IssueSeverity.Blocker);
@@ -102,6 +109,20 @@ namespace kdyf.Authorization.Migrations.Legacy
             }
             var roleMap = copied.ToDictionary(r => r.RoleId, r => values[r.RoleId]);
             var roles = copied.OrderBy(r => r.RoleId).Select(r => new TargetRole(r.RoleId, roleMap[r.RoleId], Trim(r.Name, 200)!, Trim(r.Description, 500))).ToList();
+
+            // The number of the role that is not copied stays reserved for what a host stored by it; its value never collides with a copied role's.
+            var autoRoles = new Dictionary<int, string>();
+            var taken = new HashSet<string>(roleMap.Values, StringComparer.OrdinalIgnoreCase);
+            foreach (var role in data.Roles.Where(r => skippedRole.Contains(r.RoleId)).OrderBy(r => r.RoleId))
+            {
+                var value = mappedRoles.TryGetValue(role.RoleId, out var kept) ? kept : LegacyRoleValues.Generate(role.Name, role.RoleId);
+                if (!taken.Add(value))
+                {
+                    value = $"{value[..Math.Min(value.Length, LegacyRoleValues.MaxGeneratedLength)]}-{role.RoleId}";
+                    taken.Add(value);
+                }
+                autoRoles[role.RoleId] = value;
+            }
 
             // ── What roles grant ──
             var grants = new List<TargetGrant>();
@@ -197,7 +218,7 @@ namespace kdyf.Authorization.Migrations.Legacy
             return new LegacyImportPlan
             {
                 Roles = roles, Grants = grants, Profiles = profiles, UserRoles = userRoles, Tokens = tokens,
-                UserMap = userMap, RoleMap = roleMap, Issues = issues,
+                UserMap = userMap, RoleMap = roleMap, AutoProvisionedRoles = autoRoles, Issues = issues,
             };
         }
 

@@ -283,6 +283,17 @@ namespace kdyf.Authorization.Migrations.Legacy
                     return SchemaCommandLine.Ok;
                 }
 
+                if (command == "contract" && subcommand is "cleanup")
+                {
+                    if (!confirmed)
+                    {
+                        await output.WriteLineAsync($"The cleanup drops the import's working tables of [{targetSchema}] (identities with e-mails, gate snapshot, issues, approved exceptions): confirm it with --confirm.");
+                        return SchemaCommandLine.Usage;
+                    }
+                    await output.WriteLineAsync(await LegacyCutover.CleanupAsync(connectionString, targetSchema, DateTime.UtcNow, cancellationToken));
+                    return SchemaCommandLine.Ok;
+                }
+
                 if (command == "contract" && subcommand is "rename" or "drop")
                 {
                     if (!confirmed)
@@ -294,7 +305,7 @@ namespace kdyf.Authorization.Migrations.Legacy
                     return SchemaCommandLine.Ok;
                 }
 
-                await output.WriteLineAsync("rollback-sync plan|apply | contract rename|drop|promote --confirm");
+                await output.WriteLineAsync("rollback-sync plan|apply | contract rename|drop|promote|cleanup --confirm");
                 return SchemaCommandLine.Usage;
             }
             catch (Exception ex) when (ex is DbException or InvalidOperationException)

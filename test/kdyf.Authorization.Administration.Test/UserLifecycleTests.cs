@@ -1,9 +1,13 @@
+using System.Security.Claims;
 using System.Text.Json;
 using kdyf.Authorization.Abstractions;
 using kdyf.Authorization.Administration.Models;
+using kdyf.Authorization.Authorization;
 using kdyf.Authorization.EntityFrameworkCore;
 using kdyf.Authorization.EntityFrameworkCore.Entities;
 using kdyf.Authorization.Roles;
+using kdyf.Authorization.Simulation;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -41,12 +45,29 @@ public sealed class UserLifecycleTests
     private EfUserProfileStore<AdminTestContext> Profiles(ServiceProvider services) =>
         services.CreateScope().ServiceProvider.GetRequiredService<EfUserProfileStore<AdminTestContext>>();
 
-    /// <summary>The store the requests use, with the suspension read from the profiles.</summary>
-    private IPermissionStore Store(ServiceProvider services)
+    /// <summary>
+    /// The store the requests use, with the suspension read from the profiles, inside a request from
+    /// <paramref name="caller"/> (none: outside a request), simulated by somebody when <paramref name="simulatedBy"/> is given.
+    /// </summary>
+    private IPermissionStore Store(ServiceProvider services, string? caller = null, string? simulatedBy = null, IUserActivityRecorder? activity = null)
     {
         var profiles = Profiles(services);
         return new MembershipPermissionStore(_f.Entra, new EfUserRoleSource<AdminTestContext>(_f.Db), _f.Provider,
-            NullLogger<MembershipPermissionStore>.Instance, profiles, profiles);
+            NullLogger<MembershipPermissionStore>.Instance, profiles, activity ?? profiles,
+            Request(caller, simulatedBy), new ClaimsUserIdentityResolver(new PermissionAuthorizationOptions()), new UserSimulationOptions());
+    }
+
+    private static IHttpContextAccessor Request(string? caller, string? simulatedBy)
+    {
+        var accessor = new HttpContextAccessor();
+        if (caller is null)
+            return accessor;
+
+        var claims = new List<Claim> { new("oid", caller), new("preferred_username", "caller@test") };
+        if (simulatedBy is not null)
+            claims.Add(new Claim(new UserSimulationOptions().SimulatedByObjectIdClaimType, simulatedBy));
+        accessor.HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Bearer")) };
+        return accessor;
     }
 
     private UserProfile? Profile(string objectId)
@@ -188,18 +209,18 @@ public sealed class UserLifecycleTests
         using var services = Services(time, TimeSpan.FromMinutes(15));
         var reader = new UserIdentity(People.Reader, "Reader@Test");
 
-        await Store(services).GetPermissionsAsync(reader);
+        await Store(services, caller: People.Reader).GetPermissionsAsync(reader);
         var first = Profile(People.Reader)!;
         Assert.AreEqual(time.GetUtcNow().UtcDateTime, first.LastLoginAt);
         Assert.IsTrue(first.IsActive, "being seen is not being suspended");
         Assert.AreEqual("reader@test", first.Email);
 
         time.Advance(TimeSpan.FromMinutes(10));
-        await Store(services).GetPermissionsAsync(reader);
+        await Store(services, caller: People.Reader).GetPermissionsAsync(reader);
         Assert.AreEqual(first.LastLoginAt, Profile(People.Reader)!.LastLoginAt, "within the interval: not written");
 
         time.Advance(TimeSpan.FromMinutes(10));
-        await Store(services).GetPermissionsAsync(reader);
+        await Store(services, caller: People.Reader).GetPermissionsAsync(reader);
         Assert.AreEqual(time.GetUtcNow().UtcDateTime, Profile(People.Reader)!.LastLoginAt);
     }
 
@@ -208,17 +229,80 @@ public sealed class UserLifecycleTests
     {
         using var services = Services();
 
-        await Store(services).GetPermissionsAsync(new UserIdentity(People.Newcomer, "newcomer@test"));
+        await Store(services, caller: People.Newcomer).GetPermissionsAsync(new UserIdentity(People.Newcomer, "newcomer@test"));
 
         Assert.IsNull(Profile(People.Newcomer));
+    }
+
+    /// <summary>
+    /// The vault listing who may use it, the administration valuing a token: an administrator's request resolves
+    /// somebody else's permissions, and that is not the other person's access.
+    /// </summary>
+    [TestMethod]
+    public async Task Resolving_somebody_elses_permissions_does_not_record_their_access()
+    {
+        using var services = Services();
+
+        Assert.IsTrue((await Store(services, caller: People.Admin).GetPermissionsAsync(new UserIdentity(People.Reader, null))).Count > 0);
+
+        Assert.IsNull(Profile(People.Reader));
+    }
+
+    /// <summary>A background job (the gate migration, a sync) is nobody's request.</summary>
+    [TestMethod]
+    public async Task Resolving_permissions_outside_a_request_records_nobody()
+    {
+        using var services = Services();
+
+        Assert.IsTrue((await Store(services).GetPermissionsAsync(new UserIdentity(People.Reader, null))).Count > 0);
+
+        Assert.IsNull(Profile(People.Reader));
+    }
+
+    /// <summary>
+    /// A personal access token resolves its owner's permissions, but a token is an integration, not the person signing
+    /// in: it has its own last use. Its principal carries no subject id, only the token's name and permissions.
+    /// </summary>
+    [TestMethod]
+    public async Task Using_a_personal_access_token_is_not_a_sign_in_of_its_owner()
+    {
+        using var services = Services();
+        var token = new HttpContextAccessor
+        {
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                    new[] { new Claim(ClaimTypes.Name, "erp integration"), new Claim(ClaimTypes.Role, "apitest.Read") }, "PAT")),
+            },
+        };
+        var profiles = Profiles(services);
+        var store = new MembershipPermissionStore(_f.Entra, new EfUserRoleSource<AdminTestContext>(_f.Db), _f.Provider,
+            NullLogger<MembershipPermissionStore>.Instance, profiles, profiles,
+            token, new ClaimsUserIdentityResolver(new PermissionAuthorizationOptions()), new UserSimulationOptions());
+
+        Assert.IsTrue((await store.GetPermissionsAsync(new UserIdentity(People.Reader, null))).Count > 0, "the token works");
+
+        Assert.IsNull(Profile(People.Reader));
+    }
+
+    /// <summary>A simulated request wears the target's identity, but it is the administrator reading.</summary>
+    [TestMethod]
+    public async Task A_simulated_request_does_not_record_the_targets_access()
+    {
+        using var services = Services();
+
+        await Store(services, caller: People.Reader, simulatedBy: People.Admin).GetPermissionsAsync(new UserIdentity(People.Reader, null));
+
+        Assert.IsNull(Profile(People.Reader));
+        Assert.IsNull(Profile(People.Admin));
     }
 
     /// <summary>The recording is a courtesy: a failure to write it never denies anybody.</summary>
     [TestMethod]
     public async Task A_failure_to_record_the_last_access_does_not_deny()
     {
-        var store = new MembershipPermissionStore(_f.Entra, new EfUserRoleSource<AdminTestContext>(_f.Db), _f.Provider,
-            NullLogger<MembershipPermissionStore>.Instance, activity: new FailingRecorder());
+        using var services = Services();
+        var store = Store(services, caller: People.Reader, activity: new FailingRecorder());
 
         Assert.IsTrue((await store.GetPermissionsAsync(new UserIdentity(People.Reader, null))).Count > 0);
     }
