@@ -18,7 +18,7 @@ namespace kdyf.Authorization.EntraId
     /// throws, as it always did.
     /// </para>
     /// </remarks>
-    public sealed class MigratingMembershipSource : IMembershipSource
+    internal sealed class MigratingMembershipSource : IMembershipSource
     {
         private readonly GraphMembershipSource _group;
         private readonly GraphAppAssignmentMembershipSource _assignments;
@@ -59,7 +59,9 @@ namespace kdyf.Authorization.EntraId
             {
                 return (true, (await _assignments.GetMembershipAsync(subjectId, cancellationToken))?.IsMember == true);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            // A cancellation the caller did not ask for is the HTTP timeout: one more failure to read the assignments, which
+            // never stands in the way while the group decides.
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 _logger.LogWarning(ex, "Access gate migration: the assignment of {SubjectId} could not be read; the group decides.", subjectId);
                 return (false, false);

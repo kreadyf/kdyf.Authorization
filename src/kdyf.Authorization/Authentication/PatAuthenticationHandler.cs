@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 
 namespace kdyf.Authorization.Authentication
 {
+    /// <summary>Options of the PAT scheme. It adds nothing to <see cref="AuthenticationSchemeOptions"/>.</summary>
     public sealed class PatAuthenticationOptions : AuthenticationSchemeOptions
     {
     }
@@ -20,9 +21,11 @@ namespace kdyf.Authorization.Authentication
     /// </summary>
     public sealed class PatAuthenticationHandler : AuthenticationHandler<PatAuthenticationOptions>
     {
+        /// <summary>The default scheme name, also emitted as the <see cref="ClaimTypes.AuthenticationMethod"/> claim.</summary>
         public const string SchemeName = "PAT";
         private const string HeaderPrefix = "PAT ";
 
+        /// <summary>For the authentication framework; the <see cref="IPatStore"/> is resolved per request, not injected here.</summary>
         public PatAuthenticationHandler(
             IOptionsMonitor<PatAuthenticationOptions> options,
             ILoggerFactory logger,
@@ -38,6 +41,11 @@ namespace kdyf.Authorization.Authentication
         public static bool IsPatHeader(string? authorization) =>
             authorization is not null && authorization.StartsWith(HeaderPrefix, StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Authenticates a <c>PAT &lt;token&gt;</c> header. No result when the header is absent, is not a PAT, or names
+        /// a token the store does not resolve (unknown, disabled or expired); a failure when the store throws. On
+        /// success the principal carries the token's name and one role claim per permission code.
+        /// </summary>
         protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
         {
             if (!Request.Headers.TryGetValue("Authorization", out var header))

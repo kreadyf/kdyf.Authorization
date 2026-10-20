@@ -5,7 +5,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
 
     // ── People ───────────────────────────────────────────────────────────────
 
-    public class AccessUserDto
+    internal class AccessUserDto
     {
         public required string ObjectId { get; init; }
         public string? DisplayName { get; init; }
@@ -23,7 +23,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public List<string> Permissions { get; init; } = new();
     }
 
-    public class AssignedRoleDto
+    internal class AssignedRoleDto
     {
         public required string Value { get; init; }
         public required string Name { get; init; }
@@ -31,14 +31,14 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public bool Assignable { get; init; }
     }
 
-    public class SetRolesRequestDto
+    internal class SetRolesRequestDto
     {
         public List<string> Roles { get; init; } = new();
     }
 
     // ── Roles and catalog ────────────────────────────────────────────────────
 
-    public class RoleDto
+    internal class RoleDto
     {
         public required string Value { get; init; }
         public required string Name { get; init; }
@@ -52,7 +52,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public required string Version { get; init; }
     }
 
-    public class CreateRoleRequestDto
+    internal class CreateRoleRequestDto
     {
         public string Value { get; init; } = string.Empty;
         public string? Name { get; init; }
@@ -60,7 +60,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public List<string> Permissions { get; init; } = new();
     }
 
-    public class UpdateRoleRequestDto
+    internal class UpdateRoleRequestDto
     {
         public string Name { get; init; } = string.Empty;
         public string? Description { get; init; }
@@ -71,13 +71,13 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public string? Version { get; init; }
     }
 
-    public class SetRolePermissionsRequestDto
+    internal class SetRolePermissionsRequestDto
     {
         public List<string> Permissions { get; init; } = new();
         public string? Version { get; init; }
     }
 
-    public class RoleOrphansDto
+    internal class RoleOrphansDto
     {
         public List<string> UnconfiguredRoles { get; init; } = new();
         public List<ConfiguredRoleDto> UnknownPermissions { get; init; } = new();
@@ -85,20 +85,20 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public List<FormerMemberDto> FormerMembers { get; init; } = new();
     }
 
-    public class OrphanCleanupDto
+    internal class OrphanCleanupDto
     {
         public List<ConfiguredRoleDto> RemovedPermissions { get; init; } = new();
         public List<string> RemovedCatalogPermissions { get; init; } = new();
         public List<FormerMemberDto> RemovedMembers { get; init; } = new();
     }
 
-    public class ConfiguredRoleDto
+    internal class ConfiguredRoleDto
     {
         public required string Value { get; init; }
         public List<string> Permissions { get; init; } = new();
     }
 
-    public class FormerMemberDto
+    internal class FormerMemberDto
     {
         public required string ObjectId { get; init; }
         public string? Label { get; init; }
@@ -106,7 +106,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public List<string> Roles { get; init; } = new();
     }
 
-    public class PermissionDto
+    internal class PermissionDto
     {
         public required string PermissionCode { get; init; }
         public string? Name { get; init; }
@@ -117,7 +117,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
 
     // ── Directory ────────────────────────────────────────────────────────────
 
-    public class DirectoryUserDto
+    internal class DirectoryUserDto
     {
         public required string ObjectId { get; init; }
         public string? DisplayName { get; init; }
@@ -128,7 +128,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public List<string> Roles { get; init; } = new();
     }
 
-    public class InviteRequestDto
+    internal class InviteRequestDto
     {
         public string Email { get; init; } = string.Empty;
         public string? DisplayName { get; init; }
@@ -137,7 +137,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public List<string> Roles { get; init; } = new();
     }
 
-    public class InviteResponseDto
+    internal class InviteResponseDto
     {
         public required DirectoryUserDto User { get; init; }
         public bool WasInvited { get; init; }
@@ -147,7 +147,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
 
     // ── Audit log ────────────────────────────────────────────────────────────
 
-    public class AuditFilterDto
+    internal class AuditFilterDto
     {
         public string? TargetType { get; init; }
         public string? TargetId { get; init; }
@@ -158,7 +158,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public DateTime? To { get; init; }
     }
 
-    public class AuditEntryDto
+    internal class AuditEntryDto
     {
         public long AuditLogId { get; init; }
         public DateTime OccurredAt { get; init; }
@@ -171,7 +171,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public string? Details { get; init; }
     }
 
-    public class PagedResultDto<T>
+    internal class PagedResultDto<T>
     {
         public int TotalCount { get; init; }
         public int Skip { get; init; }
@@ -182,14 +182,14 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
 
     // ── Personal access tokens ───────────────────────────────────────────────
 
-    public class CreateTokenRequestDto
+    internal class CreateTokenRequestDto
     {
         public string Name { get; init; } = string.Empty;
         public DateTime? ExpiresAt { get; init; }
         public string? OwnerObjectId { get; init; }
     }
 
-    public class CreatedTokenDto
+    internal class CreatedTokenDto
     {
         public int PersonalAccessTokenId { get; init; }
         public required string Name { get; init; }
@@ -201,7 +201,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
         public List<string> Permissions { get; init; } = new();
     }
 
-    public class TokenDto
+    internal class TokenDto
     {
         public int PersonalAccessTokenId { get; init; }
         public required string Name { get; init; }

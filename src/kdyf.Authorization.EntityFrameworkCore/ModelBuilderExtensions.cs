@@ -15,6 +15,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
     /// </remarks>
     public static class ModelBuilderExtensions
     {
+        /// <summary>The schema of the tables when none is configured.</summary>
         public const string DefaultSchema = "auth";
 
         /// <summary>

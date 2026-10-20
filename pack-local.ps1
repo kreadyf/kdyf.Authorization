@@ -50,6 +50,7 @@ foreach ($package in $packages) {
     Invoke-Step "Push $($package.Name)" { dotnet nuget push $package.FullName --source $Feed }
 }
 
-$version = "1.0.0-$Suffix"
+$prefix = ([xml](Get-Content (Join-Path $PSScriptRoot 'Directory.Build.props') -Raw)).Project.PropertyGroup.VersionPrefix | Where-Object { $_ } | Select-Object -First 1
+$version = "$prefix-$Suffix"
 Write-Host "`nPublished $($packages.Count) packages, version $version, to $Feed" -ForegroundColor Green
 Write-Host "Consumers: add '$Feed' to their NuGet.config and reference version $version."

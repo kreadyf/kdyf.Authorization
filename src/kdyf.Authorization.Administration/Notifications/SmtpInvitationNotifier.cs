@@ -61,12 +61,17 @@ namespace kdyf.Authorization.Administration.Notifications
         private readonly SmtpInvitationOptions _options;
         private readonly ILogger<SmtpInvitationNotifier> _logger;
 
+        /// <summary>Creates the notifier over the bound <see cref="SmtpInvitationOptions"/>.</summary>
         public SmtpInvitationNotifier(IOptions<SmtpInvitationOptions> options, ILogger<SmtpInvitationNotifier> logger)
         {
             _options = options.Value;
             _logger = logger;
         }
 
+        /// <summary>
+        /// Sends one HTML message to the invited address with the redeem link. Throws when SMTP is not
+        /// configured (<see cref="SmtpInvitationOptions.IsConfigured"/>) or the server refuses; the redeem link is never logged.
+        /// </summary>
         public async Task SendAsync(InvitationNotice notice, CancellationToken cancellationToken = default)
         {
             if (!_options.IsConfigured)

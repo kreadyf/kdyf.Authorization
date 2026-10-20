@@ -13,7 +13,7 @@ namespace kdyf.Authorization.Authorization
     /// silently. This is offset by the startup validation (PolicyValidationHostedService), which
     /// checks the used names against the permission catalog.
     /// </remarks>
-    public sealed class PermissionPolicyProvider : IAuthorizationPolicyProvider
+    internal sealed class PermissionPolicyProvider : IAuthorizationPolicyProvider
     {
         private readonly DefaultAuthorizationPolicyProvider _fallback;
         private readonly PermissionAuthorizationOptions _options;

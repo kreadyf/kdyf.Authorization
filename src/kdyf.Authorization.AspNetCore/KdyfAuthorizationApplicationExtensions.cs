@@ -4,6 +4,7 @@ using kdyf.Authorization.Simulation;
 // ASP.NET namespace on purpose: the host finds it with the usings it already has.
 namespace Microsoft.AspNetCore.Builder
 {
+    /// <summary>Adds the kdyf.Authorization middleware to the host's pipeline.</summary>
     public static class KdyfAuthorizationApplicationExtensions
     {
         /// <summary>
@@ -18,9 +19,9 @@ namespace Microsoft.AspNetCore.Builder
         /// business.
         /// </para>
         /// <para>
-        /// The library maps no endpoints: who the caller is, what they may do and the administration are
-        /// exposed by the host itself, over the services registered by <c>AddKdyfAuthorization</c> (for instance
-        /// <c>PolicyReport</c>).
+        /// It maps no endpoints itself: the host maps the ones it wants (<c>MapKdyfAuthorizationSession</c>, and with the
+        /// administration package <c>MapKdyfAuthorizationAdministration</c> and <c>MapKdyfAuthorizationSimulation</c>), or exposes
+        /// its own over the services registered by <c>AddKdyfAuthorization</c> (for instance <c>PolicyReport</c>).
         /// </para>
         /// </remarks>
         public static IApplicationBuilder UseKdyfAuthorization(this IApplicationBuilder app)

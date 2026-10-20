@@ -17,6 +17,10 @@ namespace kdyf.Authorization.Administration.Abstractions
     /// </remarks>
     public interface IInvitationNotifier
     {
+        /// <summary>
+        /// Sends the invitation. Only called when there is a redeem link; an exception is logged and does
+        /// not fail the invitation (the guest already exists and the link is returned anyway).
+        /// </summary>
         Task SendAsync(InvitationNotice notice, CancellationToken cancellationToken = default);
     }
 }

@@ -18,6 +18,7 @@ namespace kdyf.Authorization.EntraId
     /// <summary><c>EntraId</c>. The keys are the ones Microsoft.Identity.Web reads.</summary>
     public sealed class EntraIdApplicationOptions
     {
+        /// <summary>The Entra sign-in authority. Required; defaults to the public cloud.</summary>
         public string Instance { get; set; } = "https://login.microsoftonline.com/";
 
         /// <summary>Directory (tenant) ID.</summary>

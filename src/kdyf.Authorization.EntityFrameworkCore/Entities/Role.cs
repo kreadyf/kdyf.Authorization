@@ -11,8 +11,10 @@ namespace kdyf.Authorization.EntityFrameworkCore.Entities
         /// <summary>The name on screen.</summary>
         public string Name { get; set; } = string.Empty;
 
+        /// <summary>What the role is for, on screen. Optional.</summary>
         public string? Description { get; set; }
 
+        /// <summary>When the role was created (UTC).</summary>
         public DateTime CreatedAt { get; set; }
     }
 }

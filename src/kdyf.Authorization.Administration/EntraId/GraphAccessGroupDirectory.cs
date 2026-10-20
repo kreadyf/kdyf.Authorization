@@ -26,6 +26,7 @@ namespace kdyf.Authorization.Administration.EntraId
         private readonly IOptions<EntraGraphOptions> _options;
         private readonly GraphAccounts _accounts;
 
+        /// <summary>Creates the directory over the Graph client; <paramref name="options"/> names the access group.</summary>
         public GraphAccessGroupDirectory(GraphClient graph, IOptions<EntraGraphOptions> options)
         {
             _graph = graph;
@@ -35,6 +36,7 @@ namespace kdyf.Authorization.Administration.EntraId
 
         private string GroupId => _options.Value.GroupId;
 
+        /// <inheritdoc />
         public Task<IReadOnlyList<DirectoryAccount>> ListWithAccessAsync(CancellationToken cancellationToken = default) => GraphAccounts.Call(async () =>
         {
             // The cast to microsoft.graph.user keeps devices and service principals out; it is an advanced query,
@@ -51,15 +53,19 @@ namespace kdyf.Authorization.Administration.EntraId
             return members;
         });
 
+        /// <inheritdoc />
         public Task<DirectoryAccount?> GetUserAsync(string objectId, CancellationToken cancellationToken = default) =>
             _accounts.GetUserAsync(objectId, cancellationToken);
 
+        /// <inheritdoc />
         public Task<IReadOnlyList<DirectoryAccount>> GetUsersAsync(IReadOnlyCollection<string> objectIds, CancellationToken cancellationToken = default) =>
             _accounts.GetUsersAsync(objectIds, cancellationToken);
 
+        /// <inheritdoc />
         public Task<bool> HasAccessAsync(string objectId, CancellationToken cancellationToken = default) =>
             GraphAccounts.Call(() => _graph.IsMemberOfAsync(objectId, GroupId, cancellationToken));
 
+        /// <inheritdoc />
         public Task GrantAsync(string objectId, CancellationToken cancellationToken = default) => GraphAccounts.Call(async () =>
         {
             if (!GraphClient.IsObjectId(objectId))
@@ -83,6 +89,7 @@ namespace kdyf.Authorization.Administration.EntraId
             throw new DirectoryException($"The directory rejected adding the user to the access group: {error}");
         });
 
+        /// <inheritdoc />
         public Task RevokeAsync(string objectId, CancellationToken cancellationToken = default) => GraphAccounts.Call(async () =>
         {
             if (!GraphClient.IsObjectId(objectId))

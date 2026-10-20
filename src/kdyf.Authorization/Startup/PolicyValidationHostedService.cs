@@ -16,7 +16,7 @@ namespace kdyf.Authorization.Startup
     /// <remarks>
     /// <para>
     /// Turns a typo (which would only produce mysterious, silent 403s) into an obvious
-    /// failure. In development it aborts startup; in production it logs a critical event
+    /// failure. Outside Production it aborts startup; in Production it logs a critical event
     /// but keeps the application up: tearing down the whole service over this would be worse.
     /// </para>
     /// <para>
@@ -33,6 +33,7 @@ namespace kdyf.Authorization.Startup
         private readonly IHostEnvironment _environment;
         private readonly ILogger<PolicyValidationHostedService> _logger;
 
+        /// <summary>For the container.</summary>
         public PolicyValidationHostedService(
             IServiceProvider services,
             PermissionAuthorizationOptions options,
@@ -45,6 +46,14 @@ namespace kdyf.Authorization.Startup
             _logger = logger;
         }
 
+        /// <summary>
+        /// Runs the check. An unknown name throws <see cref="InvalidOperationException"/> in any environment other than
+        /// Production, and is logged as critical in Production.
+        /// </summary>
+        /// <remarks>
+        /// Skipped, with a log entry, when no <see cref="IPermissionCatalog"/> is registered or the catalog cannot be
+        /// read; skipped silently when there is no <see cref="EndpointDataSource"/>.
+        /// </remarks>
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             using var scope = _services.CreateScope();
@@ -122,6 +131,7 @@ namespace kdyf.Authorization.Startup
                 throw new InvalidOperationException(message);
         }
 
+        /// <summary>Nothing to stop.</summary>
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

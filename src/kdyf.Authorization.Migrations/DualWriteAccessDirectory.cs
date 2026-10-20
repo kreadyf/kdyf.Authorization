@@ -13,7 +13,7 @@ namespace kdyf.Authorization.EntraId.Migration
     /// fails the call as it always did. The assignment second: if it fails the group change stands, the error is logged,
     /// and the next sync puts the assignment right (<see cref="GateMigration"/>).
     /// </remarks>
-    public sealed class DualWriteAccessDirectory : IMigratingAccessDirectory
+    internal sealed class DualWriteAccessDirectory : IMigratingAccessDirectory
     {
         private readonly IAccessDirectory _group;
         private readonly IAccessDirectory _assignments;

@@ -75,6 +75,12 @@ namespace kdyf.Authorization.Administration
             ArgumentNullException.ThrowIfNull(identities);
 
             var identity = identities.Resolve(user) ?? new UserIdentity(null, null);
+
+            // An application token (client credentials) can carry an 'oid' — the service principal's — yet it is not a
+            // person: its changes could not be attributed to anybody. Without its subject it is refused every change,
+            // as a personal access token is.
+            if (IsApplicationToken(user, identity))
+                identity = identity with { SubjectId = null };
             var codes = await permissions.ResolveAsync(user, ct);
 
             // Without simulation the default claim is still read: a principal carrying it was borrowed by
@@ -84,5 +90,12 @@ namespace kdyf.Authorization.Administration
 
             return new AdminActor(identity, codes, simulatedBy);
         }
+
+        private static readonly string[] ScopeClaimTypes = { "scp", "http://schemas.microsoft.com/identity/claims/scope" };
+
+        /// <summary>An app-only token: <c>idtyp = app</c>, or no delegated scope and no e-mail.</summary>
+        private static bool IsApplicationToken(System.Security.Claims.ClaimsPrincipal user, UserIdentity identity) =>
+            user.HasClaim(c => c.Type == "idtyp" && string.Equals(c.Value, "app", StringComparison.OrdinalIgnoreCase))
+            || (string.IsNullOrWhiteSpace(identity.Email) && !user.HasClaim(c => ScopeClaimTypes.Contains(c.Type, StringComparer.Ordinal)));
     }
 }

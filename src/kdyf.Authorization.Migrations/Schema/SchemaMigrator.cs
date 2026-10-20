@@ -27,6 +27,13 @@ namespace kdyf.Authorization.Migrations.Schema
         private readonly ILogger _logger;
         private readonly IReadOnlyList<MigrationStep> _steps;
 
+        /// <summary>
+        /// A migrator for the schema of <paramref name="options"/> (default <c>auth</c>). Opens no connection yet; throws
+        /// <see cref="ArgumentException"/> for an empty connection string or an invalid schema or user name.
+        /// </summary>
+        /// <param name="connectionString">A SQL Server connection string; applying needs an identity with DDL rights.</param>
+        /// <param name="options">How the run behaves; <c>null</c> for the defaults.</param>
+        /// <param name="logger">Where the steps and failures are logged; <c>null</c> for none.</param>
         public SchemaMigrator(string connectionString, SchemaMigrationOptions? options = null, ILogger? logger = null)
             : this(connectionString, options ?? new SchemaMigrationOptions(), logger, MigrationSteps.For((options ?? new SchemaMigrationOptions()).UserProfiles))
         {

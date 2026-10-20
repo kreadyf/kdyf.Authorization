@@ -13,7 +13,7 @@ namespace kdyf.Authorization.Administration.EntraId
     /// Application permissions (admin consent): <c>User.Read.All</c> to search, <c>User.Invite.All</c>
     /// to invite. Who may use it is decided by the policy guarding the endpoint.
     /// </remarks>
-    public sealed class GraphDirectoryService : IDirectoryService
+    internal sealed class GraphDirectoryService : IDirectoryService
     {
         private const string UserFields = "id,displayName,mail,otherMails,userPrincipalName,userType";
 

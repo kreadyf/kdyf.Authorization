@@ -27,6 +27,16 @@ namespace kdyf.Authorization.Caching
         // which is what's needed when the permissions of a shared role change.
         private CancellationTokenSource _resetSource = new();
 
+        // Generations: every invalidation moves them on. A resolution that started before one does not cache its answer
+        // (it may have read what the invalidation was about), so a suspension or a role change cannot be put back by a
+        // lookup that was already running.
+        private long _allGeneration;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _generations = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// For the container: a singleton over the application's <see cref="IMemoryCache"/>. Entry expiry is checked
+        /// against the given <see cref="TimeProvider"/>.
+        /// </summary>
         public MemoryPermissionCache(
             IMemoryCache cache,
             PermissionAuthorizationOptions options,
@@ -67,8 +77,18 @@ namespace kdyf.Authorization.Caching
         /// entry's own window would start again from now and stack on the map's, doubling how long another
         /// instance keeps serving a changed role.
         /// </param>
-        internal void Set(UserIdentity user, IReadOnlySet<string> permissions, DateTimeOffset? notAfter = null)
+        /// <param name="generation">
+        /// What <see cref="GenerationOf"/> said when the resolution started. When an invalidation came since, nothing is
+        /// cached: the answer may predate it.
+        /// </param>
+        internal void Set(UserIdentity user, IReadOnlySet<string> permissions, DateTimeOffset? notAfter = null, (long All, long One)? generation = null)
         {
+            if (generation is { } started && started != GenerationOf(user))
+            {
+                _logger.LogDebug("Permissions of {Subject} not cached: they were invalidated while being resolved.", user.CacheKey);
+                return;
+            }
+
             // An empty result (user with no permissions or not yet onboarded) is cached for a much
             // shorter time: otherwise onboarding a new user would take the whole TTL to take effect
             // and would look like it didn't work. Caching something, even briefly, keeps a valid
@@ -87,24 +107,43 @@ namespace kdyf.Authorization.Caching
             var entryOptions = new MemoryCacheEntryOptions()
                 .SetAbsoluteExpiration(duration)
                 .SetSize(EstimateSize(permissions))
-                .AddExpirationToken(new CancellationChangeToken(_resetSource.Token));
+                .AddExpirationToken(new CancellationChangeToken(Volatile.Read(ref _resetSource).Token));
 
             _cache.Set(KeyOf(user), new Entry(permissions, now + duration), entryOptions);
+
+            // An invalidation between the check above and the write would find nothing to remove and leave this entry:
+            // checked again now that it is there. Invalidations bump the generation before removing, so one is never missed.
+            if (generation is { } before && before != GenerationOf(user))
+                _cache.Remove(KeyOf(user));
         }
 
+        /// <inheritdoc />
+        /// <remarks>On this instance only.</remarks>
         public void Invalidate(UserIdentity user)
         {
+            _generations.AddOrUpdate(user.CacheKey, 1, (_, current) => current + 1);
+            // A request arriving now starts its own resolution instead of joining one that may have read the old state.
+            InFlight.TryRemove(user.CacheKey, out _);
             _cache.Remove(KeyOf(user));
             _logger.LogInformation("Cached permissions invalidated for {Subject}.", user.CacheKey);
         }
 
+        /// <inheritdoc />
+        /// <remarks>On this instance only.</remarks>
         public void InvalidateAll()
         {
+            Interlocked.Increment(ref _allGeneration);
+            InFlight.Clear();
+            // Cancelled, not disposed: an entry being added right now may still read its token, and a disposed source
+            // would throw there — on a request whose permissions were already resolved.
             var previous = Interlocked.Exchange(ref _resetSource, new CancellationTokenSource());
             previous.Cancel();
-            previous.Dispose();
             _logger.LogInformation("Permission cache fully invalidated.");
         }
+
+        /// <summary>Where the invalidations of <paramref name="user"/> (and of everybody) stand now.</summary>
+        internal (long All, long One) GenerationOf(UserIdentity user) =>
+            (Interlocked.Read(ref _allGeneration), _generations.TryGetValue(user.CacheKey, out var one) ? one : 0);
 
         private static string KeyOf(UserIdentity user) => KeyPrefix + user.CacheKey;
 

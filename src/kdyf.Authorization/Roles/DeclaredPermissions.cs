@@ -14,6 +14,8 @@ namespace kdyf.Authorization.Roles
     {
         private readonly Dictionary<string, PermissionDefinition> _byCode;
 
+        /// <param name="permissions">The application's declarations, usually from <see cref="PermissionDefinition.DiscoverIn(System.Reflection.Assembly)"/>.</param>
+        /// <exception cref="ArgumentException">Two declarations share a code.</exception>
         public DeclaredPermissions(IEnumerable<PermissionDefinition> permissions)
         {
             Permissions = permissions.OrderBy(p => p.Code, StringComparer.Ordinal).ToList();
@@ -31,6 +33,7 @@ namespace kdyf.Authorization.Roles
         public PermissionDefinition? Find(string code) =>
             code is not null && _byCode.TryGetValue(code, out var permission) ? permission : null;
 
+        /// <summary>The declared <see cref="Codes"/>; never reads a store.</summary>
         public Task<IReadOnlySet<string>> GetAllAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Codes);
     }

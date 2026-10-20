@@ -17,7 +17,7 @@ namespace kdyf.Authorization.Caching
     /// database and Graph. Without this, a page load right after expiry fans out into as many backend
     /// lookups as it fires API calls.
     /// </remarks>
-    public sealed class CachingPermissionStore : IPermissionStore
+    internal sealed class CachingPermissionStore : IPermissionStore
     {
         private readonly IPermissionStore _inner;
         private readonly MemoryPermissionCache _cache;
@@ -81,6 +81,8 @@ namespace kdyf.Authorization.Caching
         {
             IReadOnlySet<string> permissions;
             DateTimeOffset? notAfter;
+            // Taken before anything is read: an invalidation during the resolution means the answer is not cached.
+            var generation = _cache.GenerationOf(user);
             try
             {
                 // Read BEFORE resolving: the inner store resolves from this map or from one loaded after it, never
@@ -93,7 +95,7 @@ namespace kdyf.Authorization.Caching
                 throw wrapped;
             }
 
-            _cache.Set(user, permissions, notAfter);
+            _cache.Set(user, permissions, notAfter, generation);
             return permissions;
         }
     }

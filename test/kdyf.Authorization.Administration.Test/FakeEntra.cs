@@ -97,10 +97,25 @@ internal sealed class FakeEntra : IMembershipSource, IAccessDirectory, IDirector
         return Task.FromResult(list);
     }
 
+    /// <summary>
+    /// Runs once, right after the membership of <see cref="MeanwhileFor"/> is asked: what another administrator did in the
+    /// meantime.
+    /// </summary>
+    internal Action? Meanwhile { get; set; }
+
+    /// <summary>Whose membership check triggers <see cref="Meanwhile"/>.</summary>
+    internal string? MeanwhileFor { get; set; }
+
     public Task<bool> HasAccessAsync(string objectId, CancellationToken cancellationToken = default)
     {
         Read();
-        return Task.FromResult(IsMember(objectId));
+        var member = IsMember(objectId);
+        if (Meanwhile is { } meanwhile && string.Equals(objectId, MeanwhileFor, StringComparison.OrdinalIgnoreCase))
+        {
+            Meanwhile = null;
+            meanwhile();
+        }
+        return Task.FromResult(member);
     }
 
     public Task GrantAsync(string objectId, CancellationToken cancellationToken = default)

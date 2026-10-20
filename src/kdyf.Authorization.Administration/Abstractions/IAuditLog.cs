@@ -8,6 +8,10 @@ namespace kdyf.Authorization.Administration.Abstractions
     /// </summary>
     public sealed record AuditActor(string? ObjectId, string Email)
     {
+        /// <summary>
+        /// The actor for a signed-in identity. The e-mail falls back to the subject id, then to
+        /// <c>(unknown)</c>, so an entry always names somebody.
+        /// </summary>
         public static AuditActor From(UserIdentity identity) =>
             new(identity.SubjectId, identity.Email ?? identity.SubjectId ?? "(unknown)");
     }
@@ -44,6 +48,7 @@ namespace kdyf.Authorization.Administration.Abstractions
     /// </remarks>
     public interface IAuditLog
     {
+        /// <summary>Stages <paramref name="entry"/> made by <paramref name="actor"/>; the caller's <c>SaveChanges</c> stores it.</summary>
         void Record(AuditActor actor, AuditEntry entry);
     }
 }

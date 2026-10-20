@@ -17,6 +17,10 @@ namespace kdyf.Authorization.EntityFrameworkCore
     /// </summary>
     public sealed class SchemaModelCacheKeyFactory : IModelCacheKeyFactory
     {
+        /// <summary>
+        /// The context type and <paramref name="designTime"/>, plus the schema when the context is an
+        /// <see cref="ISchemaQualifiedContext"/>.
+        /// </summary>
         public object Create(DbContext context, bool designTime) =>
             context is ISchemaQualifiedContext qualified
                 ? (context.GetType(), qualified.Schema, designTime)

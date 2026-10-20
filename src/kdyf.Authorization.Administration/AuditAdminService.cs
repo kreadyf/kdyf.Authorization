@@ -8,6 +8,13 @@ namespace kdyf.Authorization.Administration
     /// <summary>Query over the audit log. Read-only: nobody rewrites history.</summary>
     public interface IAuditAdminService
     {
+        /// <summary>
+        /// One page of the entries that match <paramref name="filter"/>, most recent first.
+        /// </summary>
+        /// <param name="filter">Empty fields do not filter. <see cref="AuditFilter.To"/> includes that whole day.</param>
+        /// <param name="skip">Entries to skip; a negative value counts as 0.</param>
+        /// <param name="take">Page size, kept between 1 and 500.</param>
+        /// <param name="ct">Cancels the query.</param>
         Task<ValidationResult<PagedResult<AuditEntryResponse>>> ListAsync(
             AuditFilter filter, int skip, int take, CancellationToken ct);
     }
@@ -21,8 +28,10 @@ namespace kdyf.Authorization.Administration
 
         private readonly TContext _context;
 
+        /// <summary>Creates the service over the context that holds the audit log.</summary>
         public AuditAdminService(TContext context) => _context = context;
 
+        /// <inheritdoc />
         public async Task<ValidationResult<PagedResult<AuditEntryResponse>>> ListAsync(
             AuditFilter filter, int skip, int take, CancellationToken ct)
         {

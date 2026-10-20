@@ -14,7 +14,6 @@
   <PropertyGroup>
     <Description>Microsoft Entra ID for kdyf.Authorization: sign-in with the Entra token, and who may use the application decided through Microsoft Graph — a security group or assignments to the Enterprise application.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -40,6 +39,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="kdyf.Authorization.EntraId.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.Administration.Test" />
     <InternalsVisibleTo Include="kdyf.Authorization.AspNetCore.Test" />
   </ItemGroup>
 

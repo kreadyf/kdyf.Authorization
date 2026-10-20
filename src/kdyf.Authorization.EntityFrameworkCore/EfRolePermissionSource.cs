@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace kdyf.Authorization.EntityFrameworkCore
 {
     /// <summary><see cref="IRolePermissionSource"/> over <c>auth.Role</c> and <c>auth.RolePermission</c>.</summary>
-    public sealed class EfRolePermissionSource<TContext> : IRolePermissionSource where TContext : DbContext
+    internal sealed class EfRolePermissionSource<TContext> : IRolePermissionSource where TContext : DbContext
     {
         private readonly TContext _db;
 
@@ -31,7 +31,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
     }
 
     /// <summary><see cref="IUserRoleSource"/> over <c>auth.UserRole</c>.</summary>
-    public sealed class EfUserRoleSource<TContext> : IUserRoleSource where TContext : DbContext
+    internal sealed class EfUserRoleSource<TContext> : IUserRoleSource where TContext : DbContext
     {
         private readonly TContext _db;
 
@@ -51,6 +51,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         }
     }
 
+    /// <summary>Registration of the EF Core role sources.</summary>
     public static class EfRoleSourceExtensions
     {
         /// <summary>

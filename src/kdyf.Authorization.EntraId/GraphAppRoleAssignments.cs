@@ -47,7 +47,7 @@ namespace kdyf.Authorization.EntraId
     /// unassigned one ends in the state asked for.
     /// </para>
     /// </remarks>
-    public sealed class GraphAppRoleAssignments : IAccessAssignments
+    internal sealed class GraphAppRoleAssignments : IAccessAssignments
     {
         private const string Fields = "id,appRoleId,principalId,principalType,resourceId";
 
@@ -139,9 +139,14 @@ namespace kdyf.Authorization.EntraId
             var page = await _graph.GetOrNullAsync<GraphPage<GraphAssignment>>(
                 $"users/{objectId}/appRoleAssignments?$select={Fields}&$top=999", "reading the user's assignments", ct);
 
+            // The user's side also lists what was assigned to a group they belong to. Only the user's OWN assignment counts:
+            // a group's would grant access the class does not recognise, and unassigning the user would remove it from the
+            // whole group.
             return (page?.Value ?? [])
                 .Where(IsAccess)
-                .Select(a => new AppRoleAssignment(a.Id!, a.PrincipalId ?? objectId))
+                .Where(a => string.Equals(a.PrincipalType, "User", StringComparison.OrdinalIgnoreCase)
+                            && Guid.TryParse(a.PrincipalId, out var principal) && Guid.TryParse(objectId, out var user) && principal == user)
+                .Select(a => new AppRoleAssignment(a.Id!, a.PrincipalId!))
                 .ToList();
         }
 

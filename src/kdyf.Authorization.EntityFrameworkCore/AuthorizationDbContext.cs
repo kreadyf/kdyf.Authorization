@@ -27,6 +27,8 @@ namespace kdyf.Authorization.EntityFrameworkCore
     {
         private readonly string _schema;
 
+        /// <param name="options">The host's provider and connection.</param>
+        /// <param name="store">Supplies the schema (<see cref="AuthorizationStoreOptions.Schema"/>).</param>
         public AuthorizationDbContext(DbContextOptions<AuthorizationDbContext> options, IOptions<AuthorizationStoreOptions> store)
             : base(options)
         {
@@ -40,6 +42,10 @@ namespace kdyf.Authorization.EntityFrameworkCore
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
             optionsBuilder.ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, SchemaModelCacheKeyFactory>();
 
+        /// <summary>
+        /// Applies the authorization model in <see cref="Schema"/>, with <see cref="ModelBuilderExtensions.SqlServerKeyCollation"/>
+        /// on the keys when the database is SQL Server.
+        /// </summary>
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

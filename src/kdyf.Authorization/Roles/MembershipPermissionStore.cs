@@ -34,7 +34,7 @@ namespace kdyf.Authorization.Roles
     /// </para>
     /// <para>A directory or database failure propagates (the handler denies, nothing is cached). Fail-closed.</para>
     /// </remarks>
-    public sealed class MembershipPermissionStore : IPermissionStore
+    internal sealed class MembershipPermissionStore : IPermissionStore
     {
         private static readonly IReadOnlySet<string> None = new HashSet<string>(StringComparer.Ordinal);
 

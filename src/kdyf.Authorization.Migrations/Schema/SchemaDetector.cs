@@ -42,8 +42,10 @@ namespace kdyf.Authorization.Migrations.Schema
             Summary = summary;
         }
 
+        /// <summary>The state the schema is in.</summary>
         public SchemaState State { get; }
 
+        /// <summary>What the catalog says about the schema, as read for the detection.</summary>
         public SchemaSnapshot Snapshot { get; }
 
         /// <summary>The rows of <c>SchemaVersion</c>, applied and failed.</summary>
@@ -58,6 +60,7 @@ namespace kdyf.Authorization.Migrations.Schema
         /// </summary>
         public IReadOnlyList<SchemaDifference> Differences { get; }
 
+        /// <summary>One line for a person: the state, with the schema's name, and what to do about it.</summary>
         public string Summary { get; }
 
         /// <summary>
@@ -82,7 +85,8 @@ namespace kdyf.Authorization.Migrations.Schema
         /// <summary>A step that failed and has not been applied since: the next run resumes it.</summary>
         public AppliedStep? FailedStep => History.FirstOrDefault(h => h.Status == SchemaHistory.Failed);
 
-        public bool CutoverCompleted => Markers.Contains(SchemaHistory.CutoverCompleted);
+        /// <summary>Whether the schema was cut over (the <c>CutoverCompleted</c> marker): the legacy import refuses to run on it.</summary>
+        public bool CutoverCompleted =>Markers.Contains(SchemaHistory.CutoverCompleted);
     }
 
     /// <summary>

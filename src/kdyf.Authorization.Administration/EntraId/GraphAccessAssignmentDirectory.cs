@@ -23,27 +23,33 @@ namespace kdyf.Authorization.Administration.EntraId
         private readonly IAccessAssignments _assignments;
         private readonly GraphAccounts _accounts;
 
+        /// <summary>Creates the directory over the Graph client and the assignments of the access app role.</summary>
         public GraphAccessAssignmentDirectory(GraphClient graph, IAccessAssignments assignments)
         {
             _assignments = assignments;
             _accounts = new GraphAccounts(graph);
         }
 
+        /// <inheritdoc />
         public Task<IReadOnlyList<DirectoryAccount>> ListWithAccessAsync(CancellationToken cancellationToken = default) => GraphAccounts.Call(async () =>
         {
             var assigned = await _assignments.ListAsync(cancellationToken);
             return await _accounts.GetUsersAsync(assigned.Select(a => a.PrincipalId).ToList(), cancellationToken);
         });
 
+        /// <inheritdoc />
         public Task<DirectoryAccount?> GetUserAsync(string objectId, CancellationToken cancellationToken = default) =>
             _accounts.GetUserAsync(objectId, cancellationToken);
 
+        /// <inheritdoc />
         public Task<IReadOnlyList<DirectoryAccount>> GetUsersAsync(IReadOnlyCollection<string> objectIds, CancellationToken cancellationToken = default) =>
             _accounts.GetUsersAsync(objectIds, cancellationToken);
 
+        /// <inheritdoc />
         public Task<bool> HasAccessAsync(string objectId, CancellationToken cancellationToken = default) =>
             GraphAccounts.Call(() => _assignments.IsAssignedAsync(objectId, cancellationToken));
 
+        /// <inheritdoc />
         public Task GrantAsync(string objectId, CancellationToken cancellationToken = default)
         {
             if (!GraphClient.IsObjectId(objectId))
@@ -51,6 +57,7 @@ namespace kdyf.Authorization.Administration.EntraId
             return GraphAccounts.Call(() => _assignments.AssignAsync(objectId, cancellationToken));
         }
 
+        /// <inheritdoc />
         public Task RevokeAsync(string objectId, CancellationToken cancellationToken = default)
         {
             if (!GraphClient.IsObjectId(objectId))

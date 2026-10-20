@@ -23,6 +23,8 @@ namespace kdyf.Authorization.Simulation
         private readonly IMemoryCache _cache;
         private readonly UserSimulationOptions _options;
 
+        /// <param name="cache">Where the running pairs are kept, per instance.</param>
+        /// <param name="options">Supplies <c>SessionIdleTimeout</c>, the sliding expiry of a pair.</param>
         public SimulationSessions(IMemoryCache cache, UserSimulationOptions options)
         {
             _cache = cache;

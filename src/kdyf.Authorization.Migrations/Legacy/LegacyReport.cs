@@ -4,20 +4,20 @@ using kdyf.Authorization.Migrations.Schema;
 namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary>One thing found in the legacy data, with how much it matters for the import.</summary>
-    public sealed record LegacyFinding(IssueSeverity Severity, string Code, string Message)
+    internal sealed record LegacyFinding(IssueSeverity Severity, string Code, string Message)
     {
         public override string ToString() => $"{Severity.ToString().ToUpperInvariant()} {Code}: {Message}";
     }
 
     /// <summary>What a role becomes: its value in the new schema, who holds it and what it grants.</summary>
-    public sealed record LegacyRolePlan(int RoleId, string Name, string RoleValue, int Holders, int Grants);
+    internal sealed record LegacyRolePlan(int RoleId, string Name, string RoleValue, int Holders, int Grants);
 
     /// <summary>
     /// The read-only report of a legacy schema before anything is imported: its shape, its numbers, what each role will
     /// be called, and every row the import will have to decide about. Nothing in it is written anywhere.
     /// </summary>
     /// <remarks>People are named by their legacy id, never by e-mail: the report may be shared.</remarks>
-    public sealed class LegacyReport
+    internal sealed class LegacyReport
     {
         private LegacyReport(LegacyData data, IReadOnlyList<LegacyRolePlan> roles, IReadOnlyList<LegacyFinding> findings)
         {

@@ -19,7 +19,6 @@
   <PropertyGroup>
     <Description>Composition of kdyf.Authorization for an ASP.NET Core host from one configuration section: AddKdyfAuthorization, UseKdyfAuthorization, user simulation and the optional session endpoints (GET auth/me, GET auth/policies), validated at startup.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

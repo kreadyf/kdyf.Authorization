@@ -17,7 +17,7 @@ namespace kdyf.Authorization.Roles
     /// closed on its own, and refusing to start over a report would turn a warning into an outage.
     /// </para>
     /// </remarks>
-    public sealed class RolePermissionStartupCheck : IHostedService
+    internal sealed class RolePermissionStartupCheck : IHostedService
     {
         private readonly RolePermissionMapProvider _roles;
         private readonly ILogger<RolePermissionStartupCheck> _logger;

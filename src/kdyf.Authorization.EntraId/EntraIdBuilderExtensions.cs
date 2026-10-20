@@ -6,6 +6,7 @@ using kdyf.Authorization.Hosting;
 
 namespace kdyf.Authorization.EntraId
 {
+    /// <summary>Registration of Microsoft Entra ID as the identity provider on the authorization builder.</summary>
     public static class EntraIdBuilderExtensions
     {
         /// <summary>

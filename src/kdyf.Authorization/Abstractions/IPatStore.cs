@@ -6,6 +6,12 @@ namespace kdyf.Authorization.Abstractions
     /// </summary>
     public interface IPatStore
     {
+        /// <summary>
+        /// The token whose secret hashes to <paramref name="tokenHash"/> (SHA-256 of its UTF-8 bytes, as
+        /// <see cref="Authentication.PatToken.Hash"/> computes it), or null when there is none, or it is disabled or
+        /// expired.
+        /// </summary>
+        /// <remarks>A store failure should throw, not return null: the PAT handler then fails the authentication.</remarks>
         Task<PatPrincipal?> ResolveAsync(byte[] tokenHash, CancellationToken cancellationToken = default);
     }
 

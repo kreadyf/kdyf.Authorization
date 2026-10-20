@@ -56,6 +56,36 @@ namespace kdyf.Authorization.Test
                 Times.Exactly(2));
         }
 
+        /// <summary>
+        /// A resolution that was already running when the person was invalidated (suspended, a role taken away) read the
+        /// old state: it is answered, but never cached — the next request resolves again and sees the change.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow(false, DisplayName = "one person invalidated")]
+        [DataRow(true, DisplayName = "everybody invalidated")]
+        public async Task An_invalidation_during_a_resolution_is_not_undone_by_it(bool everybody)
+        {
+            var calls = 0;
+            _inner
+                .Setup(s => s.GetPermissionsAsync(User, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(() =>
+                {
+                    if (++calls == 1)
+                    {
+                        // The change lands while this resolution is still reading the old state.
+                        if (everybody) _cache.InvalidateAll(); else _cache.Invalidate(User);
+                        return new HashSet<string> { "Old" };
+                    }
+                    return new HashSet<string>();
+                });
+
+            await _sut.GetPermissionsAsync(User);
+            var after = await _sut.GetPermissionsAsync(User);
+
+            Assert.AreEqual(2, calls, "resolved again: the stale answer was not cached");
+            Assert.AreEqual(0, after.Count);
+        }
+
         [TestMethod]
         public async Task Invalidating_one_user_does_not_affect_the_others()
         {

@@ -6,11 +6,13 @@ namespace kdyf.Authorization.Administration.Models
         /// <summary>Immutable identifier in the directory (the 'oid'): what <c>PUT users/{objectId}/roles</c> takes.</summary>
         public string ObjectId { get; set; } = string.Empty;
 
+        /// <summary>Name to show. May be null for a guest who has not redeemed the invitation yet.</summary>
         public string? DisplayName { get; set; }
 
         /// <summary>Real address. For a guest this is NOT their sign-in name.</summary>
         public string? Email { get; set; }
 
+        /// <summary>Sign-in name. For a guest it has the <c>#EXT#</c> shape, which is why it is not the e-mail.</summary>
         public string? UserPrincipalName { get; set; }
 
         /// <summary>External user invited through B2B.</summary>
@@ -26,7 +28,9 @@ namespace kdyf.Authorization.Administration.Models
     /// <summary>Bring a person into the access group — inviting them first when they are not in the tenant.</summary>
     public class InviteRequest
     {
+        /// <summary>The person's e-mail. Required; compared trimmed and in lower case.</summary>
         public string Email { get; set; } = string.Empty;
+        /// <summary>Name for the guest when they have to be invited. Not used for somebody already in the tenant.</summary>
         public string? DisplayName { get; set; }
 
         /// <summary>
@@ -36,6 +40,7 @@ namespace kdyf.Authorization.Administration.Models
         public List<string> Roles { get; set; } = new();
     }
 
+    /// <summary>The outcome of an invitation.</summary>
     public class InviteResponse
     {
         /// <summary>The person: the existing directory user, or the guest just created. Now in the access group.</summary>

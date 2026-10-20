@@ -12,7 +12,7 @@ namespace kdyf.Authorization.Authorization
     /// —anonymous user, unresolvable claims, store that throws— ends without granting, and ASP.NET
     /// translates it into a 403. There is no branch that grants on a failure.
     /// </remarks>
-    public sealed class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
+    internal sealed class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
     {
         private readonly IPermissionStore _store;
         private readonly IUserIdentityResolver _resolver;
@@ -52,7 +52,7 @@ namespace kdyf.Authorization.Authorization
             // The shortcut does NOT apply to people unless explicitly requested: if a role claim
             // were enough, anyone holding a directory app role named after a permission would get
             // in without touching the DB, bypassing IsActive and role revocation.
-            var isPerson = !string.IsNullOrWhiteSpace(identity?.Email);
+            var isPerson = PrincipalKind.IsPerson(principal, identity);
             var roleClaimsApply = _options.AcceptRoleClaims &&
                                   (!isPerson || _options.AcceptRoleClaimsForUserPrincipals);
 

@@ -12,7 +12,7 @@ namespace kdyf.Authorization.Administration.Persistence
     /// token change and its entry commit together, and an Entra change is recorded in the save that
     /// follows Graph's confirmation.
     /// </remarks>
-    public sealed class EfAuditLog<TContext> : IAuditLog where TContext : DbContext
+    internal sealed class EfAuditLog<TContext> : IAuditLog where TContext : DbContext
     {
         private readonly TContext _db;
 
@@ -34,6 +34,7 @@ namespace kdyf.Authorization.Administration.Persistence
         }
     }
 
+    /// <summary>Registration of the Entity Framework audit log.</summary>
     public static class EfAuditLogExtensions
     {
         /// <summary>

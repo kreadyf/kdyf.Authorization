@@ -12,7 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace kdyf.Authorization.AspNetCore.Endpoints
 {
     /// <summary>The body of <c>GET auth/me</c>.</summary>
-    public sealed class CurrentUserDto
+    internal sealed class CurrentUserDto
     {
         /// <summary>For the name on screen.</summary>
         public string? Name { get; init; }
@@ -34,14 +34,14 @@ namespace kdyf.Authorization.AspNetCore.Endpoints
     }
 
     /// <summary>How a client asks this server for a simulation.</summary>
-    public sealed class SimulationSettingsDto
+    internal sealed class SimulationSettingsDto
     {
         /// <summary>The header to send, with the simulated person's e-mail, on every request while simulating.</summary>
         public required string HeaderName { get; init; }
     }
 
     /// <summary>Who actually signed in, during a simulation.</summary>
-    public sealed class RealUserDto
+    internal sealed class RealUserDto
     {
         public string? Email { get; init; }
 
@@ -49,7 +49,7 @@ namespace kdyf.Authorization.AspNetCore.Endpoints
     }
 
     /// <summary>One door of <c>GET auth/policies</c>: its name and whether the caller opens it.</summary>
-    public sealed class PolicyAccessDto
+    internal sealed class PolicyAccessDto
     {
         public required string Name { get; init; }
 
@@ -60,6 +60,7 @@ namespace kdyf.Authorization.AspNetCore.Endpoints
 // ASP.NET namespace on purpose: the host finds it with the usings it already has.
 namespace Microsoft.AspNetCore.Builder
 {
+    /// <summary>Maps the session endpoints a client reads: who the caller is, and which doors they open.</summary>
     public static class KdyfAuthorizationSessionEndpoints
     {
         /// <summary>
@@ -79,8 +80,10 @@ namespace Microsoft.AspNetCore.Builder
         {
             ArgumentNullException.ThrowIfNull(routes);
 
+            // A session only, not the access gate: somebody let in by nothing still learns who they are and that they
+            // may do nothing, instead of a bare 403.
             var group = routes.MapGroup(prefix)
-                .RequireAuthorization()
+                .RequireAuthorization(kdyf.Authorization.AspNetCore.KdyfAuthorizationPolicies.SignedIn)
                 .AddEndpointFilter<HideFailuresFilter>();
 
             group.MapGet("me", (HttpContext http, ClaimsPrincipal user, [FromServices] IUserContext context) =>

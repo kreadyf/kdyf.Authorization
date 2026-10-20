@@ -3,26 +3,26 @@ using kdyf.Authorization.Migrations.Schema;
 
 namespace kdyf.Authorization.Migrations.Legacy
 {
-    public sealed record LegacyUser(int UserId, string Email, string? ObjectId, string? DisplayName, bool IsActive, DateTime? CreatedAt = null);
+    internal sealed record LegacyUser(int UserId, string Email, string? ObjectId, string? DisplayName, bool IsActive, DateTime? CreatedAt = null);
 
-    public sealed record LegacyUserRole(int UserId, int RoleId);
+    internal sealed record LegacyUserRole(int UserId, int RoleId);
 
-    public sealed record LegacyGrant(int RoleId, string PermissionCode);
+    internal sealed record LegacyGrant(int RoleId, string PermissionCode);
 
     /// <summary>A token limited to a role (shape B): <c>PersonalAccessTokenRole</c>.</summary>
-    public sealed record LegacyTokenRole(int TokenId, int RoleId);
+    internal sealed record LegacyTokenRole(int TokenId, int RoleId);
 
-    public sealed record LegacyToken(int Id, string Name, byte[] TokenHash, string? TokenPrefix, int UserId, bool IsActive, DateTime? ExpiresAt,
+    internal sealed record LegacyToken(int Id, string Name, byte[] TokenHash, string? TokenPrefix, int UserId, bool IsActive, DateTime? ExpiresAt,
         DateTime? CreatedAt = null, DateTime? LastUsedAt = null);
 
     /// <summary>A reference to the legacy tables from outside them: a foreign key, or a column named like a legacy id.</summary>
-    public sealed record ExternalReference(string Table, string Column, string Kind);
+    internal sealed record ExternalReference(string Table, string Column, string Kind);
 
     /// <summary>
     /// The rows of a legacy kdyf.auth.* schema, read once, whole: they are a few hundred rows (the audit log is only
     /// counted). Column names that changed between the legacy versions are found by their alternatives.
     /// </summary>
-    public sealed class LegacyData
+    internal sealed class LegacyData
     {
         public required string Schema { get; init; }
         public required IReadOnlyList<LegacyUser> Users { get; init; }

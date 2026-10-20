@@ -11,6 +11,9 @@ namespace kdyf.Authorization.EntraId
     /// <summary>Graph refused a call, or could not be reached. The message is fit for an administrator.</summary>
     public sealed class GraphException : Exception
     {
+        /// <param name="message">What failed, fit for an administrator.</param>
+        /// <param name="statusCode">Graph's status; null when it did not answer.</param>
+        /// <param name="inner">The underlying failure, if any.</param>
         public GraphException(string message, HttpStatusCode? statusCode = null, Exception? inner = null)
             : base(message, inner)
         {
@@ -24,8 +27,10 @@ namespace kdyf.Authorization.EntraId
     /// <summary>A page of a Graph collection.</summary>
     public sealed class GraphPage<T>
     {
+        /// <summary>The items of this page.</summary>
         public List<T>? Value { get; set; }
 
+        /// <summary>The URL of the next page; null on the last one.</summary>
         [JsonPropertyName("@odata.nextLink")]
         public string? NextLink { get; set; }
     }
@@ -40,6 +45,7 @@ namespace kdyf.Authorization.EntraId
     /// </remarks>
     public sealed class GraphClient
     {
+        /// <summary>The name of the <see cref="HttpClient"/> registered for Graph calls.</summary>
         public const string HttpClientName = "kdyf.Authorization.Graph";
 
         private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -52,6 +58,7 @@ namespace kdyf.Authorization.EntraId
         private readonly IOptions<EntraGraphOptions> _options;
         private readonly ILogger<GraphClient> _logger;
 
+        /// <summary>For the container.</summary>
         public GraphClient(
             IHttpClientFactory httpClientFactory,
             GraphTokenProvider tokens,
@@ -87,7 +94,12 @@ namespace kdyf.Authorization.EntraId
         }
 
         /// <summary>Every item of a collection, following nextLink up to <paramref name="maxPages"/> pages.</summary>
-        public async Task<List<T>> GetAllAsync<T>(string url, string action, CancellationToken ct, int maxPages = 20, bool eventualConsistency = false)
+        /// <exception cref="GraphException">
+        /// More pages than <paramref name="maxPages"/>: a list cut short is never answered as the whole one. Its callers
+        /// decide from what is NOT in it (who is not a member any more, which assignment to remove), so a partial list
+        /// would read as people to take away.
+        /// </exception>
+        public async Task<List<T>> GetAllAsync<T>(string url, string action, CancellationToken ct, int maxPages = 100, bool eventualConsistency = false)
         {
             var items = new List<T>();
             string? next = url;
@@ -101,7 +113,10 @@ namespace kdyf.Authorization.EntraId
             }
 
             if (next is not null)
-                _logger.LogWarning("Graph: {Action} returned more than {MaxPages} pages; the list is truncated.", action, maxPages);
+            {
+                _logger.LogError("Graph: {Action} returned more than {MaxPages} pages: refused rather than answered incomplete.", action, maxPages);
+                throw new GraphException($"The directory answered more than {maxPages} pages when {action}: the list would be incomplete.");
+            }
 
             return items;
         }

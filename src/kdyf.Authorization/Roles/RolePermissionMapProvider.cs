@@ -35,6 +35,9 @@ namespace kdyf.Authorization.Roles
         // The map and its end, swapped together: a reader never pairs one map with another's expiry.
         private Snapshot? _current;
 
+        // Bumped by Invalidate: a load that started before it read rows the invalidation says are old, and is not kept.
+        private long _generation;
+
         /// <summary>For the container: the source is scoped (it reads the database), so it is resolved per load.</summary>
         public RolePermissionMapProvider(
             IServiceScopeFactory scopes, DeclaredPermissions declared, PermissionAuthorizationOptions options, TimeProvider time)
@@ -65,6 +68,8 @@ namespace kdyf.Authorization.Roles
             TimeProvider? time = null) =>
             new(ct => source.GetAllAsync(ct), declared, (memberGrants ?? Array.Empty<string>()).ToList(), duration, time ?? TimeProvider.System);
 
+        /// <summary>The current map, read from the source when the held one has expired or was invalidated.</summary>
+        /// <remarks>A failure to read throws and is not cached.</remarks>
         public async Task<RolePermissionMap> GetAsync(CancellationToken cancellationToken = default) =>
             (await CurrentAsync(cancellationToken)).Map;
 
@@ -90,10 +95,12 @@ namespace kdyf.Authorization.Roles
 
                 // The window starts BEFORE the read: a change committed while the rows are being read is then
                 // still bounded by one duration.
+                var generation = Interlocked.Read(ref _generation);
                 var readAt = _time.GetUtcNow();
                 var map = new RolePermissionMap(await _load(cancellationToken), _declared.Codes, _memberGrants);
                 current = new Snapshot(map, readAt + _duration);
-                _current = current;
+                if (Interlocked.Read(ref _generation) == generation)
+                    _current = current;
                 return current;
             }
             finally
@@ -103,7 +110,11 @@ namespace kdyf.Authorization.Roles
         }
 
         /// <summary>Forgets the cached map: the next request reads it again.</summary>
-        public void Invalidate() => _current = null;
+        public void Invalidate()
+        {
+            Interlocked.Increment(ref _generation);
+            _current = null;
+        }
 
         private sealed record Snapshot(RolePermissionMap Map, DateTimeOffset ExpiresAt);
     }

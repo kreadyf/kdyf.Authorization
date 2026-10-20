@@ -13,7 +13,7 @@ namespace kdyf.Authorization.Administration.Persistence
     /// Saves its own entry: a simulation changes nothing else, so there is no other change to share a
     /// transaction with. A failure propagates — the simulation then refuses to start.
     /// </remarks>
-    public sealed class AuditSimulationRecorder<TContext> : ISimulationRecorder where TContext : DbContext
+    internal sealed class AuditSimulationRecorder<TContext> : ISimulationRecorder where TContext : DbContext
     {
         private readonly TContext _context;
         private readonly IAuditLog _audit;

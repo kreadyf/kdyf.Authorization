@@ -3,29 +3,6 @@ using kdyf.Authorization.Authorization;
 
 namespace kdyf.Authorization.Abstractions
 {
-    /// <summary>
-    /// One permission, declared in code: its code, and the name and description that belong with it.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The code alone was never the whole permission — a row in <c>auth.Permission</c> carries a name
-    /// and a description too, and until now those lived only in the database while the code lived
-    /// only in a <c>const</c>. Two halves of one fact, kept in two places, drifting apart with
-    /// nobody to notice. A subclass declares all three together, so the row can be DERIVED from the
-    /// code rather than maintained alongside it.
-    /// </para>
-    /// <para>
-    /// A class per permission rather than entries in a list: it gives each one a place for its own
-    /// remarks, and it is what makes <see cref="PermissionDefinition.DiscoverIn(System.Reflection.Assembly)"/> able to find them without any registry
-    /// to keep in step.
-    /// </para>
-    /// <para>
-    /// <b>It converts to its code implicitly</b>, so it goes wherever the string went —
-    /// <c>RequireAuthorization(...)</c>, <c>AuthorizeAsync(...)</c>, a comparison against a stored
-    /// code. What it CANNOT do is stand in an attribute argument: those are compile-time only, so
-    /// anything gated by <c>[Authorize(Policy = ...)]</c> still needs a <c>const</c>.
-    /// </para>
-    /// </remarks>
     /// <summary>Where a permission's code comes from.</summary>
     public enum CodeShape
     {
@@ -39,6 +16,30 @@ namespace kdyf.Authorization.Abstractions
         Verbatim = 1,
     }
 
+    /// <summary>
+    /// One permission, declared in code: its code, and the name and description that belong with it. One subclass per
+    /// permission. Equality and hashing go by <see cref="Code"/> alone (ordinal).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The code alone was never the whole permission — a row in <c>auth.Permission</c> carries a name
+    /// and a description too, and until now those lived only in the database while the code lived
+    /// only in a <c>const</c>. Two halves of one fact, kept in two places, drifting apart with
+    /// nobody to notice. A subclass declares all three together, so the row can be DERIVED from the
+    /// code rather than maintained alongside it.
+    /// </para>
+    /// <para>
+    /// A class per permission rather than entries in a list: it gives each one a place for its own
+    /// remarks, and it is what makes <see cref="DiscoverIn(System.Reflection.Assembly)"/> able to find them without any registry
+    /// to keep in step.
+    /// </para>
+    /// <para>
+    /// <b>It converts to its code implicitly</b>, so it goes wherever the string went —
+    /// <c>RequireAuthorization(...)</c>, <c>AuthorizeAsync(...)</c>, a comparison against a stored
+    /// code. What it CANNOT do is stand in an attribute argument: those are compile-time only, so
+    /// anything gated by <c>[Authorize(Policy = ...)]</c> still needs a <c>const</c>.
+    /// </para>
+    /// </remarks>
     public abstract class PermissionDefinition : IEquatable<PermissionDefinition>
     {
         /// <summary>
@@ -197,8 +198,10 @@ namespace kdyf.Authorization.Abstractions
         public bool Equals(PermissionDefinition? other) =>
             other is not null && string.Equals(Code, other.Code, StringComparison.Ordinal);
 
+        /// <summary>Equal when <paramref name="obj"/> is a <see cref="PermissionDefinition"/> with the same code.</summary>
         public override bool Equals(object? obj) => Equals(obj as PermissionDefinition);
 
+        /// <summary>The ordinal hash of the code, consistent with <see cref="Equals(PermissionDefinition?)"/>.</summary>
         public override int GetHashCode() => StringComparer.Ordinal.GetHashCode(Code);
     }
 }

@@ -54,6 +54,8 @@ namespace kdyf.Authorization.Roles
             _options = options;
         }
 
+        /// <inheritdoc />
+        /// <exception cref="AccessUnavailableException">The directory or the database failed.</exception>
         public async Task<SimulationTarget?> ResolveAsync(string email, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(email))

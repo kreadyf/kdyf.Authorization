@@ -422,6 +422,53 @@ public sealed class LegacyImportTests
         Assert.IsTrue(again.All(c => c.Count == 0), "repeatable");
     }
 
+    /// <summary>
+    /// The number of the auto-provisioned role is in the map but was never a role of the new model: going back must not read
+    /// it as revoked from everybody. A role an administrator DELETED after the cutover, on the other hand, is taken back.
+    /// </summary>
+    [TestMethod]
+    public async Task Rollback_sync_leaves_the_reserved_role_and_takes_back_a_deleted_one()
+    {
+        await using var db = await PrepareAsync();
+        await ApproveAsync(db, new InvariantException(InvariantKinds.TokenCount, null, null, -1, "user 3 has no identity", "test"));
+        var settings = new LegacyImportSettings { AutoProvisionedRole = "empty role" };
+        Assert.IsTrue((await ImportAsync(db, settings: settings)).Applied);
+        var dryRun = await ImportAsync(db, apply: false, settings: settings);
+        await LegacyCutover.AcceptReductionsAsync(db.ConnectionString, Target, dryRun.Invariant!, "carlos", default);
+        await LegacyCutover.CutoverAsync(db.ConnectionString, Target, "carlos", TimeSpan.FromHours(48), default);
+        var reserved = await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.UserRole WHERE RoleId = 3");
+        Assert.IsTrue(reserved > 0, "somebody holds the auto-provisioned role in the legacy schema");
+
+        await db.ExecuteAsync($"""
+            DELETE FROM authz.UserRole WHERE roleValue = 'order-reader';
+            DELETE FROM authz.RolePermission WHERE roleValue = 'order-reader';
+            DELETE FROM authz.Role WHERE roleValue = 'order-reader';
+            INSERT INTO authz.AuditLog (actorObjectId, actorEmail, action, targetType, targetId, targetLabel) VALUES ('{Admin}', 'admin@test', 'role.deleted', 'role', 'order-reader', 'Order Reader');
+            """);
+
+        await LegacyCutover.RollbackSyncAsync(db.ConnectionString, "auth", Target, apply: true, default);
+
+        Assert.AreEqual(reserved, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.UserRole WHERE RoleId = 3"), "the reserved role is not a revocation");
+        Assert.AreEqual(0, await db.ScalarAsync<int>("SELECT COUNT(*) FROM auth.UserRole ur JOIN authz.UserProfile p ON p.legacyUserId = ur.UserId WHERE ur.RoleId = 2"),
+            "the deleted role is taken back from the imported people");
+    }
+
+    /// <summary>
+    /// Somebody new after the cutover can get a legacy number the import left out (here user 3, never imported). Going back
+    /// must not treat them as that legacy user.
+    /// </summary>
+    [TestMethod]
+    public async Task Rollback_sync_does_not_take_a_new_person_for_the_legacy_user_of_their_number()
+    {
+        await using var db = await CutOverAsync();
+        await db.ExecuteAsync("INSERT INTO authz.UserProfile (objectId, legacyUserId, email, isActive, createdAt) VALUES ('6a1a2ce1-0000-0000-0000-0000000000aa', 3, 'new@test', 0, SYSUTCDATETIME());");
+        var before = await RowsAsync(db, "SELECT isActive, (SELECT COUNT(*) FROM auth.UserRole WHERE UserId = 3) FROM auth.[User] WHERE UserId = 3");
+
+        await LegacyCutover.RollbackSyncAsync(db.ConnectionString, "auth", Target, apply: true, default);
+
+        CollectionAssert.AreEqual(before, await RowsAsync(db, "SELECT isActive, (SELECT COUNT(*) FROM auth.UserRole WHERE UserId = 3) FROM auth.[User] WHERE UserId = 3"));
+    }
+
     [TestMethod]
     public async Task Rollback_sync_before_the_cutover_is_refused()
     {
@@ -451,6 +498,73 @@ public sealed class LegacyImportTests
         Assert.IsNull(await db.ScalarAsync<object>($"SELECT SCHEMA_ID('{schema}')"));
         Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"), "the target is untouched");
     }
+
+    /// <summary>
+    /// The contraction renames or drops the LEGACY schema only. Pointed at the target, or at any schema of the new model (after
+    /// promote the live one carries the legacy name), it refuses and touches nothing.
+    /// </summary>
+    [TestMethod]
+    public async Task The_contraction_never_renames_or_drops_the_target_or_a_schema_of_the_new_model()
+    {
+        await using var db = await CutOverAsync();
+        var later = DateTime.UtcNow.AddDays(3);
+        var tables = await TablesAsync(db, Target);
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.ContractAsync(db.ConnectionString, Target, Target, false, later, default));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.ContractAsync(db.ConnectionString, Target, "auth", false, later, default));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.ContractAsync(db.ConnectionString, Target, "auth", true, later, default));
+
+        Assert.AreEqual(tables, await TablesAsync(db, Target), "the new model is where it was");
+    }
+
+    /// <summary>A schema that is neither the new model nor a legacy one (a mistyped name, the host's own tables) is never touched.</summary>
+    [TestMethod]
+    public async Task The_contraction_never_renames_or_drops_a_schema_that_is_not_a_legacy_one()
+    {
+        await using var db = await CutOverAsync();
+        var later = DateTime.UtcNow.AddDays(3);
+        await db.ExecuteAsync("CREATE TABLE dbo.Orders (Id INT NOT NULL PRIMARY KEY)");
+        await db.ExecuteAsync("EXEC('CREATE SCHEMA host_legacy_20260101'); CREATE TABLE host_legacy_20260101.Invoices (Id INT NOT NULL PRIMARY KEY)");
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.ContractAsync(db.ConnectionString, "dbo", Target, false, later, default));
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => LegacyCutover.ContractAsync(db.ConnectionString, "host_legacy_20260101", Target, true, later, default));
+
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('dbo') AND name = 'Orders'"));
+        Assert.AreEqual(1, await db.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID('host_legacy_20260101')"));
+    }
+
+    /// <summary>A schema name that is not a plain identifier never reaches the SQL, from the command line or from code.</summary>
+    [TestMethod]
+    public async Task A_schema_name_that_is_not_an_identifier_is_refused_before_any_sql()
+    {
+        await using var db = await CutOverAsync();
+
+        var (code, output) = await CommandAsync(db, null, "contract", "rename", "--legacy-schema", "auth];DROP TABLE authz.Role;--", "--confirm");
+
+        Assert.AreEqual(SchemaCommandLine.Usage, code, output);
+        StringAssert.Contains(output, "not a valid schema name");
+        await Assert.ThrowsExceptionAsync<ArgumentException>(() => LegacyCutover.RollbackSyncAsync(db.ConnectionString, "auth'", Target, false, default));
+        Assert.AreEqual(3, await db.ScalarAsync<int>("SELECT COUNT(*) FROM authz.Role"));
+    }
+
+    /// <summary>
+    /// Hosts give a role created after the import its number in LegacyRoleMap, running as the runtime role: it may read and
+    /// INSERT there, never rewrite or delete a number. The working tables (e-mails) stay closed to it.
+    /// </summary>
+    [TestMethod]
+    public async Task The_runtime_role_may_number_new_roles_but_never_rewrite_a_number()
+    {
+        await using var db = await PrepareAsync();
+        Assert.IsTrue((await ImportAsync(db)).Applied);
+
+        CollectionAssert.AreEquivalent(new[] { "DELETE|D", "INSERT|G", "SELECT|G", "UPDATE|D" },
+            await RowsAsync(db, Permissions("kdyf_authz_runtime", "authz.LegacyRoleMap")));
+        CollectionAssert.Contains(await RowsAsync(db, Permissions("kdyf_authz_runtime", "authz.MigrationIdentity")), "SELECT|D");
+    }
+
+    private static string Permissions(string role, string table) =>
+        "SELECT p.permission_name + '|' + p.state FROM sys.database_permissions p JOIN sys.database_principals r ON r.principal_id = p.grantee_principal_id " +
+        $"WHERE r.name = '{role}' AND p.major_id = OBJECT_ID('{table}')";
 
     [TestMethod]
     public async Task The_new_schema_takes_the_legacy_name_with_its_data_its_role_and_its_grants()
@@ -483,6 +597,11 @@ public sealed class LegacyImportTests
         Assert.AreEqual(1, await db.ScalarAsync<int>(
             "SELECT COUNT(*) FROM sys.database_permissions p JOIN sys.database_principals r ON r.principal_id = p.grantee_principal_id " +
             "WHERE r.name = 'kdyf_auth_runtime' AND p.major_id = OBJECT_ID('auth.AuditLog') AND p.permission_name = 'DELETE' AND p.state = 'D'"), "and still not deletable");
+
+        // The import's own tables are not in the manifest: a transfer drops their grants, and promote gives them back.
+        CollectionAssert.AreEquivalent(new[] { "DELETE|D", "INSERT|G", "SELECT|G", "UPDATE|D" },
+            await RowsAsync(db, Permissions("kdyf_auth_runtime", "auth.LegacyRoleMap")), "hosts still read and number roles in the map");
+        CollectionAssert.Contains(await RowsAsync(db, Permissions("kdyf_auth_runtime", "auth.MigrationIdentity")), "SELECT|D", "the e-mails stay closed");
     }
 
     // ── kdyf-auth migrate ────────────────────────────────────────────────────

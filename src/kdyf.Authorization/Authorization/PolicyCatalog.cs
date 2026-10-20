@@ -12,6 +12,7 @@ namespace kdyf.Authorization.Authorization
     /// </remarks>
     public sealed class PolicyCatalog
     {
+        /// <param name="policies">The declared policies, ordered by name.</param>
         public PolicyCatalog(IReadOnlyList<Policy> policies) => Policies = policies;
 
         /// <summary>Ordered by name.</summary>

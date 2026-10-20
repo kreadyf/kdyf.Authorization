@@ -146,6 +146,7 @@ namespace kdyf.Authorization.Authorization
             return declared;
         }
 
+        /// <summary>The policy name.</summary>
         public override string ToString() => Name;
 
         /// <summary>Goes wherever the policy name went.</summary>

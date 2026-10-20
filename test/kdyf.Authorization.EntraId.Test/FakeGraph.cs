@@ -43,6 +43,9 @@ internal sealed class FakeGraph : HttpMessageHandler
     /// <summary>When set, every assignment call answers 500.</summary>
     public bool AssignmentsDown { get; set; }
 
+    /// <summary>When set, the listing of the application's assignments never ends: always one more page.</summary>
+    public bool EndlessPages { get; set; }
+
     public FakeGraph Person(string objectId, bool enabled = true, bool member = false)
     {
         People[objectId] = enabled;
@@ -130,15 +133,19 @@ internal sealed class FakeGraph : HttpMessageHandler
             if (AssignmentsDown)
                 return Status(HttpStatusCode.InternalServerError, "down");
 
-            // users/{id}/appRoleAssignments: every assignment of the user, on any application.
+            // users/{id}/appRoleAssignments: every assignment of the user, on any application — and, as Graph does, those of
+            // the groups the user is a direct member of (principalType Group, principalId the group).
             if (request.Method == HttpMethod.Get && segments is ["users", var holder, "appRoleAssignments"])
                 return People.ContainsKey(holder)
-                    ? Json(new { value = Assignments.Where(a => a.Principal == holder).Select(Shape) })
+                    ? Json(new { value = Assignments.Where(a => a.Principal == holder || (a.Type == "Group" && a.Principal == Group && Members.Contains(holder))).Select(Shape) })
                     : Status(HttpStatusCode.NotFound);
 
-            // servicePrincipals/{sp}/appRoleAssignedTo: every assignment on the application.
+            // servicePrincipals/{sp}/appRoleAssignedTo: every assignment on the application. With EndlessPages, every page
+            // points to one more, as a listing too large to read would.
             if (request.Method == HttpMethod.Get && segments is ["servicePrincipals", var resource, "appRoleAssignedTo"])
-                return Json(new { value = Assignments.Where(a => a.Resource == resource).Select(Shape) });
+                return EndlessPages
+                    ? Json(new Dictionary<string, object> { ["value"] = Array.Empty<object>(), ["@odata.nextLink"] = request.RequestUri!.ToString() })
+                    : Json(new { value = Assignments.Where(a => a.Resource == resource).Select(Shape) });
 
             if (request.Method == HttpMethod.Post && segments is ["servicePrincipals", var on, "appRoleAssignedTo"])
             {

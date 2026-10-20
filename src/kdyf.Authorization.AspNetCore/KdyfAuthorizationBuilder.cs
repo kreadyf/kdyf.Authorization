@@ -76,6 +76,23 @@ namespace kdyf.Authorization.AspNetCore
             _providers.Add((name, register));
         }
 
+        /// <summary>
+        /// Makes a session enough for the fallback policy (every endpoint without authorization metadata) and the default
+        /// one (a bare <c>RequireAuthorization()</c>), as before 1.0: any account of the tenant that can get a token gets
+        /// in, inside the access gate or not. Only for a host whose every endpoint names its permission.
+        /// </summary>
+        /// <remarks>
+        /// By default both policies demand the access gate too (<see cref="kdyf.Authorization.Authorization.AccessGateRequirement"/>):
+        /// a person holding at least one permission, or a token carrying one.
+        /// </remarks>
+        public KdyfAuthorizationBuilder SignedInIsEnough()
+        {
+            SessionIsEnough = true;
+            return this;
+        }
+
+        internal bool SessionIsEnough { get; private set; }
+
         internal HashSet<string> MemberPermissionCodes { get; } = new(StringComparer.Ordinal);
 
         /// <summary>Refuses an incomplete setup at registration, with the call that is missing.</summary>

@@ -15,7 +15,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
     /// changes pending must not have them saved by a read. At most one write per person every
     /// <see cref="AuthorizationStoreOptions.LastAccessInterval"/>, decided by the database, so several instances agree.
     /// </remarks>
-    public sealed class EfUserProfileStore<TContext> : IUserSuspensionSource, IUserActivityRecorder where TContext : DbContext
+    internal sealed class EfUserProfileStore<TContext> : IUserSuspensionSource, IUserActivityRecorder where TContext : DbContext
     {
         private readonly TContext _db;
         private readonly IServiceScopeFactory _scopes;
@@ -81,6 +81,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         }
     }
 
+    /// <summary>Registration of the EF Core user profiles: suspension and last access.</summary>
     public static class EfUserProfileExtensions
     {
         /// <summary>

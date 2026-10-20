@@ -46,7 +46,7 @@ namespace kdyf.Authorization.Administration.EntraId
 // 'using Microsoft.Extensions.DependencyInjection;' to find this.
 namespace Microsoft.Extensions.DependencyInjection
 {
-    public static class AzureAdAccessAdministrationExtensions
+    internal static class AzureAdAccessAdministrationExtensions
     {
         /// <summary>
         /// Administers access in Microsoft Entra ID: registers the access directory — the access group

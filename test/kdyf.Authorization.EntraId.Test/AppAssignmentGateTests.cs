@@ -36,6 +36,47 @@ public sealed class AppAssignmentGateTests
         Assert.AreEqual(new Membership(true, false), await gate.GetMembershipAsync(Cleo), "the same role id on another application");
     }
 
+    /// <summary>
+    /// Graph lists, on the user's side, the assignments of the groups they belong to as well. Only a user's own assignment
+    /// counts: a group's gives no access here.
+    /// </summary>
+    [TestMethod]
+    public async Task An_assignment_to_a_group_of_the_user_does_not_count()
+    {
+        var graph = new FakeGraph().Person(Ana, member: true).Assign(FakeGraph.Group, type: "Group");
+        using var services = graph.Services(AccessGate.AppAssignment);
+
+        Assert.AreEqual(new Membership(true, false), await Source(services).GetMembershipAsync(Ana));
+        Assert.IsFalse(await services.GetRequiredService<IAccessAssignments>().IsAssignedAsync(Ana, default));
+    }
+
+    /// <summary>Unassigning a user removes the user's own assignment, never the one of a group they belong to.</summary>
+    [TestMethod]
+    public async Task Unassigning_a_user_leaves_the_assignment_of_their_group()
+    {
+        var graph = new FakeGraph().Person(Ana, member: true).Assign(Ana).Assign(FakeGraph.Group, type: "Group");
+        using var services = graph.Services(AccessGate.AppAssignment);
+
+        await services.GetRequiredService<IAccessAssignments>().UnassignAsync(Ana, default);
+
+        Assert.IsFalse(graph.Assignments.Any(a => a.Principal == Ana), "the user's own: removed");
+        Assert.IsTrue(graph.Assignments.Any(a => a.Principal == FakeGraph.Group), "the group's: kept");
+    }
+
+    /// <summary>
+    /// A listing too large to read whole is refused, never answered partial: the gate migration removes every assignment
+    /// missing from it, so a list cut short would read as people to take away.
+    /// </summary>
+    [TestMethod]
+    public async Task A_listing_cut_short_is_refused_rather_than_answered_incomplete()
+    {
+        var graph = new FakeGraph().Person(Ana).Assign(Ana);
+        graph.EndlessPages = true;
+        using var services = graph.Services(AccessGate.AppAssignment);
+
+        await Assert.ThrowsExceptionAsync<GraphException>(() => services.GetRequiredService<IAccessAssignments>().ListAsync(default));
+    }
+
     /// <summary>The assignment survives a disabled account: the gate reads the account too.</summary>
     [TestMethod]
     public async Task A_disabled_account_with_an_assignment_holds_nothing()

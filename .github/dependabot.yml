@@ -13,6 +13,16 @@ updates:
         patterns: ['Microsoft.*', 'System.*', 'Azure.*']
       test:
         patterns: ['MSTest.*', 'Moq', 'coverlet.*']
+    # The floors are deliberate (Directory.Packages.props): the packages build against EF Core 8 and ASP.NET Core 8 so
+    # that hosts on .NET 8 can use them. A major version is a decision, not a weekly pull request; servicing updates
+    # (8.0.x) still come.
+    ignore:
+      - dependency-name: 'Microsoft.EntityFrameworkCore*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'Microsoft.AspNetCore*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'Microsoft.Extensions.*'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /

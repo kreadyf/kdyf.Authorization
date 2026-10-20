@@ -20,6 +20,7 @@ namespace kdyf.Authorization.Abstractions
     /// </remarks>
     public interface ISimulationTargetResolver
     {
+        /// <summary>The user <paramref name="email"/> names, or null when there is no such user or the user is not active.</summary>
         Task<SimulationTarget?> ResolveAsync(string email, CancellationToken cancellationToken = default);
     }
 }

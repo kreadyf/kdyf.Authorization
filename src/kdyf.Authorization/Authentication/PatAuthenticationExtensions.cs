@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication;
 
 namespace kdyf.Authorization.Authentication
 {
+    /// <summary>Registration of the personal access token (PAT) authentication scheme.</summary>
     public static class PatAuthenticationExtensions
     {
         /// <summary>

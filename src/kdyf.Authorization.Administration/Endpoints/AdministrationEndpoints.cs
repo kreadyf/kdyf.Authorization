@@ -10,6 +10,7 @@ using kdyf.Authorization.Simulation;
 // ASP.NET namespace on purpose: the host finds it with the usings it already has.
 namespace Microsoft.AspNetCore.Builder
 {
+    /// <summary>Maps the endpoints of the administration of access.</summary>
     public static class KdyfAuthorizationAdministrationEndpoints
     {
         /// <summary>

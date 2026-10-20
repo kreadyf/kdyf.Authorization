@@ -8,7 +8,7 @@ namespace kdyf.Authorization.Authorization
     /// <see cref="PermissionAuthorizationHandler"/>: for non-person clients the permissions are
     /// their role claims; for people, those from the store.
     /// </summary>
-    public sealed class PrincipalPermissionResolver : IPrincipalPermissionResolver
+    internal sealed class PrincipalPermissionResolver : IPrincipalPermissionResolver
     {
         private static readonly IReadOnlySet<string> None = new HashSet<string>(StringComparer.Ordinal);
 
@@ -33,7 +33,7 @@ namespace kdyf.Authorization.Authorization
                 return None;
 
             var identity = _identityResolver.Resolve(principal);
-            var isPerson = !string.IsNullOrWhiteSpace(identity?.Email);
+            var isPerson = PrincipalKind.IsPerson(principal, identity);
 
             var codes = new HashSet<string>(StringComparer.Ordinal);
 

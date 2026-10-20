@@ -23,7 +23,6 @@
   <PropertyGroup>
     <Description>Administration of kdyf.Authorization: people and their access (Entra group or Enterprise app assignments), roles, personal access tokens, the directory, the audit log and user simulation, its ASP.NET Core composition and optional minimal API endpoints.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -40,6 +39,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="kdyf.Authorization.Administration.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.EntraId.Test" />
     <InternalsVisibleTo Include="kdyf.Authorization.Administration.AspNetCore.Test" />
     <InternalsVisibleTo Include="kdyf.Authorization.Endpoints.Test" />
   </ItemGroup>

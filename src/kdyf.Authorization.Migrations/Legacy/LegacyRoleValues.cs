@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary>A legacy role: its numeric id and its name.</summary>
-    public sealed record LegacyRole(int RoleId, string Name, string? Description = null);
+    internal sealed record LegacyRole(int RoleId, string Name, string? Description = null);
 
     /// <summary>
     /// Gives each legacy role (numeric <c>RoleId</c>) the <c>roleValue</c> it has in the new schema: deterministic, stable
@@ -24,6 +24,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// </remarks>
     public static partial class LegacyRoleValues
     {
+        /// <summary>The longest value generated from a name, before a <c>-{RoleId}</c> suffix.</summary>
         public const int MaxGeneratedLength = 90;
 
         [GeneratedRegex("^[A-Za-z][A-Za-z0-9._-]{0,99}$")]
@@ -54,7 +55,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <c>RoleId</c> order. Throws, with every problem listed, when an override is invalid, collides, or renames a
         /// role already mapped.
         /// </summary>
-        public static IReadOnlyDictionary<int, string> Assign(
+        internal static IReadOnlyDictionary<int, string> Assign(
             IEnumerable<LegacyRole> roles,
             IReadOnlyDictionary<int, string>? mapped = null,
             IReadOnlyDictionary<int, string>? overrides = null)

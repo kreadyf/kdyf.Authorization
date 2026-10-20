@@ -11,6 +11,7 @@ using kdyf.Authorization.EntraId;
 // Top-level namespace on purpose: the host finds it with the usings it already has.
 namespace Microsoft.Extensions.DependencyInjection
 {
+    /// <summary>Registers the administration of access in the host's services.</summary>
     public static class KdyfAuthorizationAdministrationServiceCollectionExtensions
     {
         /// <summary>

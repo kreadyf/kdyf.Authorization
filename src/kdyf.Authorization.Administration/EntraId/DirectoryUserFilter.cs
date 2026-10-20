@@ -13,6 +13,10 @@ namespace kdyf.Authorization.Administration.EntraId
     /// </remarks>
     public static class DirectoryUserFilter
     {
+        /// <summary>
+        /// Whether <paramref name="search"/> appears in the display name, the e-mail or the local part of the UPN,
+        /// ignoring case and accents.
+        /// </summary>
         public static bool Matches(DirectoryUser user, string search) =>
             Contains(user.DisplayName, search) ||
             Contains(user.Email, search) ||

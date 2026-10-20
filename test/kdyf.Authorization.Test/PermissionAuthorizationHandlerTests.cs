@@ -143,6 +143,72 @@ namespace kdyf.Authorization.Test
                 "a person must always be resolved against the store");
         }
 
+        /// <summary>
+        /// A person without an e-mail claim is still a person: a v1 token whose 'upn' the JWT handler mapped, or a user
+        /// without a mail. What makes it a person is that it was issued for a user (delegated scopes, mapped or not, or
+        /// idtyp = user) — so their directory app role still cannot get them in past the store.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("scp", "access_as_user")]
+        [DataRow("http://schemas.microsoft.com/identity/claims/scope", "access_as_user")]
+        [DataRow("idtyp", "user")]
+        public async Task A_user_token_without_an_email_is_still_a_person(string claim, string value)
+        {
+            StoreReturns();   // the store says no
+
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(
+                new[]
+                {
+                    new Claim("http://schemas.microsoft.com/identity/claims/objectidentifier", "6a1a2ce1-0000-0000-0000-000000000001"),
+                    new Claim(claim, value),
+                    new Claim(ClaimTypes.Role, Permission),
+                },
+                "Bearer"));
+
+            var context = await Evaluate(principal);
+
+            Assert.IsFalse(context.HasSucceeded, "the role claim cannot override the store");
+            _store.Verify(s => s.GetPermissionsAsync(It.IsAny<UserIdentity>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        /// <summary>A v1 token mapped by the JWT handler carries the e-mail as ClaimTypes.Upn.</summary>
+        [TestMethod]
+        public void The_mapped_upn_is_read_as_the_email()
+        {
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim("oid", "6a1a2ce1-0000-0000-0000-000000000001"), new Claim(ClaimTypes.Upn, "Ana@Test") }, "Bearer"));
+
+            Assert.AreEqual("ana@test", new ClaimsUserIdentityResolver(new PermissionAuthorizationOptions()).Resolve(principal)!.Email);
+        }
+
+        /// <summary>
+        /// One person, one cache entry: an object id in upper case (a personal access token typed by hand) resolves to the
+        /// key the store uses, so invalidating the person reaches it.
+        /// </summary>
+        [TestMethod]
+        public void An_object_id_resolves_to_the_key_the_store_uses()
+        {
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("oid", " 6A1A2CE1-0000-0000-0000-00000000000F ") }, "PAT"));
+
+            var identity = new ClaimsUserIdentityResolver(new PermissionAuthorizationOptions()).Resolve(principal)!;
+
+            Assert.AreEqual("6a1a2ce1-0000-0000-0000-00000000000f", identity.SubjectId);
+            Assert.AreEqual("6a1a2ce1-0000-0000-0000-00000000000f", identity.CacheKey);
+        }
+
+        /// <summary>An application token (client credentials) has an object id but no scopes: it keeps using its role claims.</summary>
+        [TestMethod]
+        public async Task An_application_token_with_an_object_id_still_gets_in_through_its_role_claim()
+        {
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(
+                new[] { new Claim("oid", "6a1a2ce1-0000-0000-0000-0000000000ff"), new Claim("idtyp", "app"), new Claim(ClaimTypes.Role, Permission) }, "Bearer"));
+
+            var context = await Evaluate(principal);
+
+            Assert.IsTrue(context.HasSucceeded);
+            _store.Verify(s => s.GetPermissionsAsync(It.IsAny<UserIdentity>(), It.IsAny<CancellationToken>()), Times.Never);
+        }
+
         [TestMethod]
         public async Task The_role_claim_serves_a_person_if_explicitly_enabled()
         {

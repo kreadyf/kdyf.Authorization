@@ -28,7 +28,7 @@ env:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45   # the migration tests run against SQL Server on both frameworks
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest

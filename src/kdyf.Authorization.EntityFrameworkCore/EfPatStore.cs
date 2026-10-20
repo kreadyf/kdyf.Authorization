@@ -16,7 +16,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
     /// owner's access: take the owner out of the group, remove their role or disable their account, and
     /// the token stops working within the same window as the owner's session does.
     /// </remarks>
-    public sealed class EfPatStore<TContext> : IPatStore where TContext : DbContext
+    internal sealed class EfPatStore<TContext> : IPatStore where TContext : DbContext
     {
         // Last-used is recorded at most once per this interval, to avoid an UPDATE
         // on every request from high-frequency integrations.
@@ -101,6 +101,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         }
     }
 
+    /// <summary>Registration of the EF Core <see cref="IPatStore"/>.</summary>
     public static class EfPatStoreExtensions
     {
         /// <summary>

@@ -26,12 +26,18 @@ namespace kdyf.Authorization.Caching
         private readonly IPermissionStore _inner;
         private readonly IPermissionCatalog _catalog;
 
+        /// <param name="inner">The store whose grants may contain patterns.</param>
+        /// <param name="catalog">The declared codes the patterns expand against.</param>
         public WildcardExpandingPermissionStore(IPermissionStore inner, IPermissionCatalog catalog)
         {
             _inner = inner;
             _catalog = catalog;
         }
 
+        /// <summary>
+        /// The inner store's grants plus the declared codes their patterns cover (the patterns stay in the set, see
+        /// <see cref="PermissionWildcards.Expand"/>). The catalog is read only when a pattern is present; a catalog failure throws.
+        /// </summary>
         public async Task<IReadOnlySet<string>> GetPermissionsAsync(
             UserIdentity user, CancellationToken cancellationToken = default)
         {

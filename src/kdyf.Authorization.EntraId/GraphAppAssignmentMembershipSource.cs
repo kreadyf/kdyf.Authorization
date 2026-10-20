@@ -16,7 +16,7 @@ namespace kdyf.Authorization.EntraId
     /// </para>
     /// <para>The two calls are sent together: a cache miss costs one round trip to Graph.</para>
     /// </remarks>
-    public sealed class GraphAppAssignmentMembershipSource : IMembershipSource
+    internal sealed class GraphAppAssignmentMembershipSource : IMembershipSource
     {
         private readonly GraphClient _graph;
         private readonly IAccessAssignments _assignments;

@@ -30,13 +30,18 @@ namespace kdyf.Authorization.Abstractions
     /// </remarks>
     public interface ISimulationRecorder
     {
+        /// <summary>
+        /// Records that a simulation started: once per session, before the first borrowed response. Throwing refuses
+        /// the simulation.
+        /// </summary>
         Task StartedAsync(SimulationSession session, CancellationToken cancellationToken = default);
 
+        /// <summary>Records that a simulation ended.</summary>
         Task EndedAsync(SimulationSession session, CancellationToken cancellationToken = default);
     }
 
     /// <summary>The default <see cref="ISimulationRecorder"/>: a log line per start and end.</summary>
-    public sealed class LoggingSimulationRecorder : ISimulationRecorder
+    internal sealed class LoggingSimulationRecorder : ISimulationRecorder
     {
         private readonly ILogger<LoggingSimulationRecorder> _logger;
 

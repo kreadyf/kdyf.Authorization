@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 // Top-level namespace on purpose: the host finds it with the usings it already has.
 namespace Microsoft.Extensions.DependencyInjection
 {
+    /// <summary>Registration of the Entra ID membership source and the Graph plumbing.</summary>
     public static class EntraIdServiceCollectionExtensions
     {
         /// <summary>

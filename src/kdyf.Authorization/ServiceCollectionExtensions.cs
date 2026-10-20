@@ -39,6 +39,7 @@ namespace kdyf.Authorization
             services.TryAddSingleton<IUserIdentityResolver, ClaimsUserIdentityResolver>();
             services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
             services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+            services.AddScoped<IAuthorizationHandler, AccessGateAuthorizationHandler>();
             services.TryAddScoped<IPrincipalPermissionResolver, PrincipalPermissionResolver>();
 
             if (options.ValidatePoliciesOnStartup)

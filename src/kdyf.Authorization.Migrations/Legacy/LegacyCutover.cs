@@ -7,20 +7,20 @@ using Microsoft.Data.SqlClient;
 namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary>One check of the go/no-go, with whether it passed.</summary>
-    public sealed record GoNoGoCheck(string Name, bool Passed, string Detail)
+    internal sealed record GoNoGoCheck(string Name, bool Passed, string Detail)
     {
         public override string ToString() => $"[{(Passed ? "x" : " ")}] {Name}: {Detail}";
     }
 
     /// <summary>What <c>rollback-sync</c> takes back to the legacy schema: revocations only.</summary>
-    public sealed record RollbackChange(string Table, string What, int Count);
+    internal sealed record RollbackChange(string Table, string What, int Count);
 
     /// <summary>
     /// The cutover of a legacy import and what surrounds it: accepting the reductions, the go/no-go, the cutover with its
     /// rollback window, taking the revocations made since back to the legacy schema (<c>rollback-sync</c>), and the
     /// contraction of the legacy schema once the window is closed.
     /// </summary>
-    public static class LegacyCutover
+    internal static class LegacyCutover
     {
         private const string ReductionsMarker = "ReductionsAccepted:";
         private const string WindowMarker = "RollbackWindowHours:";
@@ -33,6 +33,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>Records that <paramref name="approver"/> accepted the reductions of this dry run.</summary>
         public static async Task<string> AcceptReductionsAsync(string connectionString, string target, InvariantReport invariant, string approver, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(target);
             var fingerprint = ReductionsFingerprint(invariant);
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(cancellationToken);
@@ -53,6 +54,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// </summary>
         public static async Task<IReadOnlyList<GoNoGoCheck>> CheckAsync(string connectionString, string target, LegacyImportReport dryRun, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(target);
             var checks = new List<GoNoGoCheck>
             {
                 new("no blockers", !dryRun.HasBlockers,
@@ -86,6 +88,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>Records the cutover and its rollback window. After it, the import never runs on the target again.</summary>
         public static async Task CutoverAsync(string connectionString, string target, string approver, TimeSpan window, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(target);
             await new SchemaMigrator(connectionString, new SchemaMigrationOptions { Schema = target }).MarkCutoverAsync(cancellationToken);
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(cancellationToken);
@@ -102,6 +105,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>When the cutover happened and when its rollback window closes; null before the cutover.</summary>
         public static async Task<(DateTime At, DateTime WindowEnds)?> WindowAsync(DbConnection connection, string target, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(target);
             await using var command = connection.CreateCommand();
             command.CommandText = $"""
                 SELECT c.SetAt, w.Name FROM [{target}].[{SchemaHistory.MarkerTable}] c
@@ -125,20 +129,37 @@ namespace kdyf.Authorization.Migrations.Legacy
         public static async Task<IReadOnlyList<RollbackChange>> RollbackSyncAsync(
             string connectionString, string legacy, string target, bool apply, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(target); SchemaMigrationOptions.RequireSchemaName(legacy, "legacy schema");
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(cancellationToken);
             var window = await WindowAsync(connection, target, cancellationToken)
                          ?? throw new InvalidOperationException($"[{target}] has not been cut over: there is nothing to take back.");
 
-            // Legacy keys of what the target knows: users through their profile, roles through the permanent map.
-            const string Users = "SELECT p.legacyUserId AS UserId, p.objectId, p.isActive FROM [{0}].[UserProfile] p WHERE p.legacyUserId IS NOT NULL";
-            var users = string.Format(Users, target);
+            if (await ScalarAsync(connection, null, "SELECT COUNT(*) FROM sys.tables WHERE schema_id = SCHEMA_ID(@schema) AND name = @table", cancellationToken,
+                    ("@schema", target), ("@table", MigrationStore.IdentityTable)) == 0)
+                throw new InvalidOperationException($"[{target}] has no {MigrationStore.IdentityTable} (cleaned up?): who each legacy user is cannot be told, so nothing is taken back.");
+
+            // Legacy keys of what the target knows. A person: their profile's legacy number AND the identity the import
+            // resolved for that number — a number given to somebody new after the cutover can be one the import left out, and
+            // must not reach that legacy user. A role: through the permanent map, only roles the target has or had: the
+            // number reserved for the auto-provisioned role (Default) was never a role there, and is not a revocation.
+            var users = $"""
+                SELECT p.legacyUserId AS UserId, p.objectId, p.isActive FROM [{target}].[UserProfile] p
+                JOIN [{target}].[{MigrationStore.IdentityTable}] mi ON mi.LegacyUserId = p.legacyUserId AND LOWER(mi.ObjectId) = LOWER(p.objectId)
+                WHERE p.legacyUserId IS NOT NULL
+                """;
+            var roles = $"""
+                SELECT m.RoleId, m.roleValue FROM [{target}].[LegacyRoleMap] m
+                WHERE EXISTS (SELECT 1 FROM [{target}].[Role] r WHERE r.roleValue = m.roleValue)
+                   OR EXISTS (SELECT 1 FROM [{target}].[AuditLog] a WHERE a.targetType = 'role' AND a.action = 'role.deleted'
+                              AND a.targetId = m.roleValue COLLATE {SchemaManifest.Bin2} AND a.occurredAt >= @cutover)
+                """;
             var statements = new (string Table, string What, string Sql)[]
             {
                 ("UserRole", "roles taken away", $"""
                     DELETE ur FROM [{legacy}].[UserRole] ur
                     JOIN ({users}) u ON u.UserId = ur.UserId
-                    JOIN [{target}].[LegacyRoleMap] m ON m.RoleId = ur.RoleId
+                    JOIN ({roles}) m ON m.RoleId = ur.RoleId
                     WHERE NOT EXISTS (SELECT 1 FROM [{target}].[UserRole] t WHERE t.objectId = u.objectId AND t.roleValue = m.roleValue)
                     """),
                 ("User", "people suspended", $"""
@@ -157,7 +178,7 @@ namespace kdyf.Authorization.Migrations.Legacy
                     """),
                 ("RolePermission", "permissions a role no longer grants", $"""
                     DELETE lp FROM [{legacy}].[RolePermission] lp
-                    JOIN [{target}].[LegacyRoleMap] m ON m.RoleId = lp.RoleId
+                    JOIN ({roles}) m ON m.RoleId = lp.RoleId
                     WHERE EXISTS (SELECT 1 FROM [{target}].[Permission] c WHERE c.PermissionCode = lp.PermissionCode COLLATE {SchemaManifest.Bin2})
                       AND NOT EXISTS (SELECT 1 FROM [{target}].[RolePermission] t WHERE t.roleValue = m.roleValue AND t.PermissionCode = lp.PermissionCode COLLATE {SchemaManifest.Bin2})
                     """),
@@ -189,8 +210,26 @@ namespace kdyf.Authorization.Migrations.Legacy
         public static async Task<string> ContractAsync(
             string connectionString, string legacy, string target, bool drop, DateTime now, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(target); SchemaMigrationOptions.RequireSchemaName(legacy, "legacy schema");
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(cancellationToken);
+            // The schema renamed or dropped is the LEGACY one. Never the target, and never a schema of the new model: after
+            // 'contract promote' the live schema is called as the legacy one was ('auth'), and the defaults would point here.
+            if (string.Equals(legacy, target, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"[{legacy}] is the target schema itself, not the legacy one: nothing is renamed or dropped.");
+            if (await ScalarAsync(connection, null, $"""
+                    SELECT CASE WHEN OBJECT_ID(N'[{legacy}].[{SchemaHistory.VersionTable}]') IS NOT NULL
+                                  OR OBJECT_ID(N'[{legacy}].[UserProfile]') IS NOT NULL
+                                  OR COL_LENGTH(N'[{legacy}].[Role]', N'roleValue') IS NOT NULL THEN 1 ELSE 0 END
+                    """, cancellationToken) == 1)
+                throw new InvalidOperationException($"[{legacy}] holds the new model (a schema version, profiles or role values), not a legacy schema: it is never renamed or dropped by the contraction. "
+                                                    + "After 'contract promote' the legacy schema is the renamed one: pass it with --legacy-schema.");
+
+            // Not the new model is not enough: a mistyped name ('dbo', the host's own schema) has none of its marks either.
+            var shape = LegacyShapes.Classify(await SchemaSnapshot.ReadAsync(connection, null, legacy, "-", cancellationToken));
+            if (shape.Label == "?")
+                throw new InvalidOperationException($"[{legacy}] is not a legacy kdyf.auth.* schema ({shape.Description}): it is never renamed or dropped by the contraction.");
+
             var window = await WindowAsync(connection, target, cancellationToken)
                          ?? throw new InvalidOperationException($"[{target}] has not been cut over: the legacy schema is still the application's.");
             if (now < window.WindowEnds)
@@ -220,7 +259,12 @@ namespace kdyf.Authorization.Migrations.Legacy
                 foreach (var table in tables)
                     sql.AppendLine($"DROP TABLE [{legacy}].[{table}];");
                 sql.AppendLine($"DROP SCHEMA [{legacy}];");
-                await ExecuteAsync(connection, null, sql.ToString(), cancellationToken);
+                // All or nothing: a view or another object of the host's in the schema stops it before any table is gone.
+                await using (var transaction = await connection.BeginTransactionAsync(cancellationToken))
+                {
+                    await ExecuteAsync(connection, transaction, sql.ToString(), cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+                }
                 return $"[{legacy}] dropped ({tables.Count} tables).";
             }
 
@@ -251,6 +295,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         public static async Task<string> PromoteAsync(
             string connectionString, string from, string to, DateTime now, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(from); SchemaMigrationOptions.RequireSchemaName(to);
             if (string.Equals(from, to, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"[{from}] already is the schema called [{to}].");
 
@@ -306,6 +351,9 @@ namespace kdyf.Authorization.Migrations.Legacy
                 sql.AppendLine($"GRANT {string.Join(", ", permissions)} ON [{to}].[{table}] TO [{newRole}];");
             foreach (var (table, permissions) in SchemaManifest.Denies(applied))
                 sql.AppendLine($"DENY {string.Join(", ", permissions)} ON [{to}].[{table}] TO [{newRole}];");
+            // The import's own tables are not in the manifest: the map (hosts read and number roles in it) and the working
+            // tables (e-mails, until cleanup) get their grants and denies back too.
+            sql.AppendLine(LegacyImporter.RuntimeGrantsOfPresentTablesSql(to));
             foreach (var member in members)
                 sql.AppendLine($"ALTER ROLE [{oldRole}] DROP MEMBER [{member.Replace("]", "]]")}];");
             sql.AppendLine($"IF DATABASE_PRINCIPAL_ID(N'{oldRole}') IS NOT NULL DROP ROLE [{oldRole}];");
@@ -335,6 +383,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// </summary>
         public static async Task<string> CleanupAsync(string connectionString, string target, DateTime now, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(target);
             await using var connection = new SqlConnection(connectionString);
             await connection.OpenAsync(cancellationToken);
             var window = await WindowAsync(connection, target, cancellationToken)

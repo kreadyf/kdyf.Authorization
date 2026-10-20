@@ -17,9 +17,9 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// <param name="Value">The number a count exception allows.</param>
     /// <param name="Reason">Why it is accepted, for whoever reads the record later.</param>
     /// <param name="ApprovedBy">Who approved it.</param>
-    public sealed record InvariantException(string Kind, string? ObjectId, string? Code, int? Value, string Reason, string ApprovedBy);
+    internal sealed record InvariantException(string Kind, string? ObjectId, string? Code, int? Value, string Reason, string ApprovedBy);
 
-    public static class InvariantKinds
+    internal static class InvariantKinds
     {
         public const string MemberBaseAccess = "member-base-access";
         public const string Gain = "gain";
@@ -31,7 +31,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     }
 
     /// <summary>How the invariant is checked for an application.</summary>
-    public sealed class InvariantSettings
+    internal sealed class InvariantSettings
     {
         /// <summary>What every member of the new gate holds without roles (the host's <c>MemberPermissionCodes</c>).</summary>
         public IReadOnlyCollection<string> MemberGrants { get; init; } = Array.Empty<string>();
@@ -49,7 +49,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     }
 
     /// <summary>The outcome: what is refused, what is approved, and what is lost (to be accepted before the cutover).</summary>
-    public sealed class InvariantReport
+    internal sealed class InvariantReport
     {
         public required IReadOnlyList<ImportIssue> Issues { get; init; }
 
@@ -69,7 +69,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// access of members), exactly as <see cref="RolePermissionMap.ForMember"/> computes it at run time.
     /// </summary>
     /// <remarks>Pure: from the plan, which the import then verifies the target equals row by row.</remarks>
-    public static class AccessInvariant
+    internal static class AccessInvariant
     {
         public static InvariantReport Check(
             LegacyData data, IReadOnlyList<ResolvedIdentity> identities, LegacyImportPlan plan, IReadOnlySet<string> declared,

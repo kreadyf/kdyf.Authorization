@@ -11,6 +11,11 @@ namespace kdyf.Authorization.Abstractions
     /// </summary>
     public interface IPrincipalPermissionResolver
     {
+        /// <summary>
+        /// The permission codes <paramref name="principal"/> holds: its role claims when role claims apply to it, plus the
+        /// store's permissions when it is a person. Empty for an unauthenticated principal.
+        /// </summary>
+        /// <remarks>A store failure propagates; it is never turned into an empty set here.</remarks>
         Task<IReadOnlySet<string>> ResolveAsync(ClaimsPrincipal principal, CancellationToken cancellationToken = default);
     }
 }

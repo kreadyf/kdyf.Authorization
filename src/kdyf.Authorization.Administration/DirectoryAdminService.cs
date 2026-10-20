@@ -11,7 +11,7 @@ namespace kdyf.Authorization.Administration
     /// <inheritdoc cref="IDirectoryAdminService"/>
     /// <typeparam name="TContext">Consumer's DbContext with both models applied: the roles are read from it, and
     /// an invitation is audited.</typeparam>
-    public sealed class DirectoryAdminService<TContext> : IDirectoryAdminService where TContext : DbContext
+    internal sealed class DirectoryAdminService<TContext> : IDirectoryAdminService where TContext : DbContext
     {
         /// <summary>Below this the tenant-wide search would list half the directory.</summary>
         private const int MinimumSearchLength = 2;
@@ -104,6 +104,20 @@ namespace kdyf.Authorization.Administration
                     var wasMember = await _group.HasAccessAsync(existing.ObjectId, ct);
                     if (!wasMember)
                     {
+                        // Roles left behind from before switch back on as they join: they are given now, by this
+                        // administrator, under the same rule as the roles of the invitation. Checked before the group.
+                        var key = UserRoleRow.Normalize(existing.ObjectId);
+                        var leftBehind = (await HeldRolesAsync(new[] { key }, ct)).TryGetValue(key, out var kept) ? kept : new List<string>();
+                        if (leftBehind.Count > 0)
+                        {
+                            if (_access is null)
+                                return Outcome.Error<InviteResponse>("roles", "They still hold roles from before, and the access administration that checks them is not registered here.");
+                            var revived = await _access.CheckGrantableAsync(leftBehind, actor, ct);
+                            if (!revived.Validation.IsValid)
+                                return Outcome.Error<InviteResponse>("roles",
+                                    "They still hold roles from before, which joining the group would switch back on: " + Messages(revived));
+                        }
+
                         await _group.GrantAsync(existing.ObjectId, CancellationToken.None);
                         Record(actor, "access.granted", existing.ObjectId, email, new { added = Array.Empty<string>(), removed = Array.Empty<string>() });
                         await _context.SaveChangesAsync(CancellationToken.None);

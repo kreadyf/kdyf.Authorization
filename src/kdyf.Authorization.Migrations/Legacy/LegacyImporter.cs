@@ -17,22 +17,37 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>Stable id, for the report.</summary>
         string Id { get; }
 
+        /// <summary>
+        /// Runs the step on <see cref="LegacyImportContext.Connection"/> inside <see cref="LegacyImportContext.Transaction"/>.
+        /// It also runs on a dry run, which is rolled back; an exception rolls back the whole import.
+        /// </summary>
         Task ApplyAsync(LegacyImportContext context, CancellationToken cancellationToken);
     }
 
     /// <summary>What a host step gets: the connection and transaction of the import, the schemas and the maps.</summary>
     public sealed class LegacyImportContext
     {
+        /// <summary>The import's open connection.</summary>
         public required DbConnection Connection { get; init; }
+
+        /// <summary>The import's transaction: every command of the step must run in it.</summary>
         public required DbTransaction Transaction { get; init; }
+
+        /// <summary>The legacy schema being read.</summary>
         public required string LegacySchema { get; init; }
+
+        /// <summary>The target schema being written.</summary>
         public required string TargetSchema { get; init; }
+
+        /// <summary>Legacy role id → role value, for every role copied.</summary>
         public required IReadOnlyDictionary<int, string> RoleMap { get; init; }
+
+        /// <summary>Legacy user id → object id, for the users imported.</summary>
         public required IReadOnlyDictionary<int, string> UserMap { get; init; }
     }
 
     /// <summary>What the import is asked to do.</summary>
-    public sealed class LegacyImportRequest
+    internal sealed class LegacyImportRequest
     {
         public required string LegacySchema { get; init; }
         public required string TargetSchema { get; init; }
@@ -51,7 +66,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     }
 
     /// <summary>What an import run did, or would do.</summary>
-    public sealed class LegacyImportReport
+    internal sealed class LegacyImportReport
     {
         public required bool Applied { get; init; }
         public required IReadOnlyList<ImportIssue> Issues { get; init; }
@@ -76,7 +91,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// (EXCEPT, both ways) before the commit: the target is either the previous copy or the new one, never between. The
     /// audit log is copied after, in batches by id, each its own transaction, resuming where the last stopped.
     /// </remarks>
-    public static class LegacyImporter
+    internal static class LegacyImporter
     {
         public static async Task<LegacyImportReport> RunAsync(
             string connectionString, LegacyImportRequest request, CancellationToken cancellationToken = default)
@@ -192,10 +207,39 @@ namespace kdyf.Authorization.Migrations.Legacy
 
             DECLARE @runtime sysname = N'kdyf_{schema}_runtime';
             IF DATABASE_PRINCIPAL_ID(@runtime) IS NOT NULL
-                EXEC(N'GRANT SELECT ON [{schema}].[LegacyRoleMap] TO ' + @runtime + N';
-                       DENY INSERT, UPDATE, DELETE ON [{schema}].[LegacyRoleMap] TO ' + @runtime + N';
-                       DENY SELECT, INSERT, UPDATE, DELETE ON [{schema}].[MigrationIssue] TO ' + @runtime + N';');
+                EXEC(N'{RuntimeGrantsSql(schema).Replace("'", "''")}');
             """;
+
+        /// <summary>
+        /// What the runtime role may do on the import's own tables. LegacyRoleMap: read, and INSERT — a host gives a role created
+        /// after the import its number (the frontend and the vault store roles by number) — but never UPDATE or DELETE: a
+        /// number, once given, means that role forever. MigrationIssue holds e-mails: nothing. Run again after a transfer
+        /// (<c>contract promote</c>), which drops every grant.
+        /// </summary>
+        internal static string RuntimeGrantsSql(string schema)
+        {
+            var role = $"[kdyf_{schema}_runtime]";
+            return $"""
+                GRANT SELECT, INSERT ON [{schema}].[LegacyRoleMap] TO {role};
+                DENY UPDATE, DELETE ON [{schema}].[LegacyRoleMap] TO {role};
+                DENY SELECT, INSERT, UPDATE, DELETE ON [{schema}].[MigrationIssue] TO {role};
+                """;
+        }
+
+        /// <summary>
+        /// The runtime role's grants and denies on every table of the import that is present (the map, and the working tables
+        /// holding e-mails until <c>contract cleanup</c>), for <c>kdyf_{schema}_runtime</c>: what <c>contract promote</c> applies
+        /// again after moving the tables, since a transfer drops them.
+        /// </summary>
+        internal static string RuntimeGrantsOfPresentTablesSql(string schema)
+        {
+            var role = $"[kdyf_{schema}_runtime]";
+            var sql = new System.Text.StringBuilder();
+            sql.AppendLine($"IF OBJECT_ID(N'[{schema}].[LegacyRoleMap]') IS NOT NULL BEGIN GRANT SELECT, INSERT ON [{schema}].[LegacyRoleMap] TO {role}; DENY UPDATE, DELETE ON [{schema}].[LegacyRoleMap] TO {role}; END;");
+            foreach (var table in new[] { MigrationStore.IdentityTable, MigrationStore.GateTable, "MigrationIssue", InvariantExceptions.Table })
+                sql.AppendLine($"IF OBJECT_ID(N'[{schema}].[{table}]') IS NOT NULL DENY SELECT, INSERT, UPDATE, DELETE ON [{schema}].[{table}] TO {role};");
+            return sql.ToString();
+        }
 
         private static async Task<IReadOnlyDictionary<int, string>> MappedRolesAsync(DbConnection connection, string schema, CancellationToken cancellationToken)
         {

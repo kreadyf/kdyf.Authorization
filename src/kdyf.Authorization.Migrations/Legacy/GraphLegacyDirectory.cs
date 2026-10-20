@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary><see cref="ILegacyDirectory"/> over Microsoft Graph, with the host's Graph registration (User.Read.All).</summary>
-    public sealed class GraphLegacyDirectory : ILegacyDirectory
+    internal sealed class GraphLegacyDirectory : ILegacyDirectory
     {
         private const string Fields = "id,userPrincipalName,mail,userType,accountEnabled";
 

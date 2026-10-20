@@ -14,7 +14,7 @@ namespace kdyf.Authorization.Administration
     /// Each operation runs in an <see cref="Activity"/> of its own (<see cref="ActivitySourceName"/>), named as the
     /// operation, and leaves a log line with the real caller and the person.
     /// </remarks>
-    public sealed class SimulationAdminService : ISimulationAdminService
+    internal sealed class SimulationAdminService : ISimulationAdminService
     {
         /// <summary>The source of the operations' activities: listen to it to trace them.</summary>
         public const string ActivitySourceName = "kdyf.Authorization.Simulation";

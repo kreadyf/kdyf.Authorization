@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 
 namespace kdyf.Authorization.Migrations.Schema
 {
+    /// <summary>The <c>kdyf-auth</c> commands run from inside a host (<c>&lt;host&gt; kdyf-auth &lt;command&gt;</c>).</summary>
     public static class SchemaCommandHostExtensions
     {
         /// <summary>The environment variable with the connection string of the migration, when it is not the host's.</summary>

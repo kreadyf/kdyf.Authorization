@@ -18,7 +18,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     ///   { "kind": "token-count", "value": -2, "reason": "Tokens of people outside the group stop working" } ] }
     /// </code>
     /// </remarks>
-    public static class InvariantExceptions
+    internal static class InvariantExceptions
     {
         public const string Table = "MigrationException";
 

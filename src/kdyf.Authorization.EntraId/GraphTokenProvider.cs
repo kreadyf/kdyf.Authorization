@@ -20,6 +20,7 @@ namespace kdyf.Authorization.EntraId
 
         private readonly Lazy<TokenCredential> _credential;
 
+        /// <param name="options">The tenant, client id and client secret. Read on first use, not here.</param>
         public GraphTokenProvider(IOptions<EntraGraphOptions> options)
         {
             // Lazy: the container must build even while the options are incomplete; the failure has to
@@ -34,6 +35,8 @@ namespace kdyf.Authorization.EntraId
         /// <summary>For tests: a credential of their own instead of the client secret.</summary>
         internal GraphTokenProvider(TokenCredential credential) => _credential = new Lazy<TokenCredential>(() => credential);
 
+        /// <summary>An application access token for Microsoft Graph, from the credential's cache when it still holds one.</summary>
+        /// <exception cref="GraphException">The token could not be obtained; the message names the keys to check.</exception>
         public async Task<string> GetAccessTokenAsync(CancellationToken cancellationToken = default)
         {
             try

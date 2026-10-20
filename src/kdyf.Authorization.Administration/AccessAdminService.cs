@@ -44,6 +44,13 @@ namespace kdyf.Authorization.Administration
         /// <summary>The code that means "administers access": what the lockout guard counts.</summary>
         private readonly string _administrationCode;
 
+        /// <summary>Creates the service. Normally resolved from DI, registered by <c>AddKdyfAuthorizationAdministration</c>.</summary>
+        /// <remarks>
+        /// <c>options</c> supplies the administration permission code the lockout guard counts
+        /// (<see cref="AuthPolicies.Admin"/> when absent). With <c>memory</c>, a suspension also clears the person's
+        /// cached answer as a simulation target. <c>store</c> says whether the schema keeps user profiles (assumed on
+        /// when absent); without them suspension is refused.
+        /// </remarks>
         public AccessAdminService(
             TContext context,
             IAccessDirectory group,
@@ -72,6 +79,7 @@ namespace kdyf.Authorization.Administration
 
         // ── People: reads ────────────────────────────────────────────────────────
 
+        /// <inheritdoc />
         public async Task<ValidationResult<List<AccessUserResponse>>> ListUsersAsync(AdminActor actor, CancellationToken ct)
         {
             try
@@ -106,6 +114,7 @@ namespace kdyf.Authorization.Administration
             }
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<AccessUserResponse>> GetUserAsync(string objectId, AdminActor actor, CancellationToken ct)
         {
             if (!Guid.TryParse(objectId, out _))
@@ -129,6 +138,7 @@ namespace kdyf.Authorization.Administration
 
         // ── People: changes ──────────────────────────────────────────────────────
 
+        /// <inheritdoc />
         public async Task<ValidationResult<AccessUserResponse>> SetRolesAsync(
             string objectId, SetRolesRequest request, AdminActor actor, CancellationToken ct)
         {
@@ -186,8 +196,20 @@ namespace kdyf.Authorization.Administration
                     $"You cannot remove {string.Join(", ", beyondRemove)}: it grants permissions you do not hold. "
                     + "Send it back unchanged to leave it as it is.");
 
+            // Somebody outside the group whose roles stayed behind: bringing them in switches those roles back on, so the
+            // ones they keep are given now, by this administrator, and pass the same rule as a grant.
+            if (!person.IsMember)
+            {
+                var revived = current.Except(toRemove, StringComparer.Ordinal).Where(value => !map.IsCoveredBy(value, actor.Permissions)).ToList();
+                if (revived.Count > 0)
+                    return Outcome.Error<AccessUserResponse>("roles",
+                        $"You cannot bring them back into the access group: they still hold {string.Join(", ", revived)}, "
+                        + "which grants permissions you do not hold. Ask an administrator who holds them.");
+            }
+
             var remaining = current.Except(toRemove, StringComparer.Ordinal).Concat(toAdd).ToHashSet(StringComparer.Ordinal);
-            if (person.HasAccess && Administers(map, current) && !Administers(map, remaining))
+            var takesAdministration = person.HasAccess && Administers(map, current) && !Administers(map, remaining);
+            if (takesAdministration)
             {
                 var guard = await LeavesAnAdministratorAsync(map, context.Held, except: objectId, ct);
                 if (guard is not null)
@@ -196,6 +218,11 @@ namespace kdyf.Authorization.Administration
 
             if (toAdd.Count == 0 && toRemove.Count == 0 && person.IsMember)
                 return Outcome.Ok(ToResponse(person, actor, context));
+
+            // Taking the administration away: counted again under the administrators' lock, until the change is saved.
+            await using var administrators = takesAdministration ? await _context.Database.BeginTransactionAsync(CancellationToken.None) : null;
+            if (takesAdministration && await RecheckAdministratorsAsync(objectId, CancellationToken.None) is { } stillOne)
+                return Outcome.Error<AccessUserResponse>(stillOne.Field, stillOne.Message);
 
             // The group first: without it the roles grant nothing, and if Graph refuses nothing has changed yet.
             var joined = false;
@@ -223,6 +250,8 @@ namespace kdyf.Authorization.Administration
                 joined ? "access.granted" : "access.roles.changed", "user", key, person.User.Label, details));
 
             await SaveAuditedAsync(actor, $"the access of {person.User.Label} ({key})", joined ? $"added to the access group; {details}" : details);
+            if (administrators is not null)
+                await administrators.CommitAsync(CancellationToken.None);
 
             // At once on this instance; on others, within CacheDuration.
             _cache.Invalidate(new UserIdentity(key, null));
@@ -231,6 +260,7 @@ namespace kdyf.Authorization.Administration
             return Outcome.Ok(ToResponse(person with { IsMember = true, Roles = remaining }, actor, context));
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<bool>> RevokeAsync(string objectId, AdminActor actor, CancellationToken ct)
         {
             if (Refuse(actor) is { } refusal)
@@ -267,12 +297,18 @@ namespace kdyf.Authorization.Administration
                 return Outcome.Error<bool>("roles",
                     $"You cannot remove {string.Join(", ", beyond)}: it grants permissions you do not hold.");
 
-            if (person.HasAccess && Administers(map, person.Roles))
+            var takesAdministration = person.HasAccess && Administers(map, person.Roles);
+            if (takesAdministration)
             {
                 var guard = await LeavesAnAdministratorAsync(map, context.Held, except: objectId, ct);
                 if (guard is not null)
                     return Outcome.Error<bool>(guard.Value.Field, guard.Value.Message);
             }
+
+            // Counted again under the administrators' lock, until the roles are gone.
+            await using var administrators = takesAdministration ? await _context.Database.BeginTransactionAsync(CancellationToken.None) : null;
+            if (takesAdministration && await RecheckAdministratorsAsync(objectId, CancellationToken.None) is { } stillOne)
+                return Outcome.Error<bool>(stillOne.Field, stillOne.Message);
 
             // The database first: the roles go at once, whatever Graph does next. The other order would risk the
             // opposite failure — out of the group, but with roles that come back the moment somebody re-adds them.
@@ -283,6 +319,8 @@ namespace kdyf.Authorization.Administration
             var details = JsonSerializer.Serialize(new { removed, fromGroup = person.IsMember });
             _audit.Record(AuditActor.From(actor.Identity), new AuditEntry("access.revoked", "user", key, person.User.Label, details));
             await SaveAuditedAsync(actor, $"the access of {person.User.Label} ({key})", details);
+            if (administrators is not null)
+                await administrators.CommitAsync(CancellationToken.None);
 
             _cache.Invalidate(new UserIdentity(key, null));
             await NotifyAsync(person.User, Array.Empty<string>(), removed, actor);
@@ -313,9 +351,11 @@ namespace kdyf.Authorization.Administration
             return Outcome.Ok(true);
         }
 
+        /// <inheritdoc />
         public Task<ValidationResult<AccessUserResponse>> SuspendAsync(string objectId, AdminActor actor, CancellationToken ct) =>
             SetSuspendedAsync(objectId, suspended: true, actor, ct);
 
+        /// <inheritdoc />
         public Task<ValidationResult<AccessUserResponse>> ReactivateAsync(string objectId, AdminActor actor, CancellationToken ct) =>
             SetSuspendedAsync(objectId, suspended: false, actor, ct);
 
@@ -360,12 +400,18 @@ namespace kdyf.Authorization.Administration
                 return Outcome.Error<AccessUserResponse>("roles",
                     $"They hold {string.Join(", ", beyond)}, which grants permissions you do not hold: you cannot {(suspended ? "suspend" : "reactivate")} them.");
 
-            if (suspended && person.HasAccess && Administers(context.Map, person.Roles))
+            var takesAdministration = suspended && person.HasAccess && Administers(context.Map, person.Roles);
+            if (takesAdministration)
             {
                 var guard = await LeavesAnAdministratorAsync(context.Map, context.Held, except: objectId, ct);
                 if (guard is not null)
                     return Outcome.Error<AccessUserResponse>(guard.Value.Field, guard.Value.Message);
             }
+
+            // Counted again under the administrators' lock, until the suspension is saved.
+            await using var administrators = takesAdministration ? await _context.Database.BeginTransactionAsync(CancellationToken.None) : null;
+            if (takesAdministration && await RecheckAdministratorsAsync(objectId, CancellationToken.None) is { } stillOne)
+                return Outcome.Error<AccessUserResponse>(stillOne.Field, stillOne.Message);
 
             var key = UserRoleRow.Normalize(objectId);
             var profiles = _context.Set<UserProfileRow>();
@@ -383,6 +429,8 @@ namespace kdyf.Authorization.Administration
             _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
                 suspended ? "access.suspended" : "access.reactivated", "user", key, person.User.Label, details));
             await SaveAuditedAsync(actor, $"the suspension of {person.User.Label} ({key})", suspended ? "suspended" : "reactivated");
+            if (administrators is not null)
+                await administrators.CommitAsync(CancellationToken.None);
 
             // At once on this instance (their permissions, and their answer as a simulation target); elsewhere within
             // CacheDuration.
@@ -394,6 +442,7 @@ namespace kdyf.Authorization.Administration
             return Outcome.Ok(ToResponse(person with { IsSuspended = suspended }, actor, context));
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<bool>> CheckGrantableAsync(IReadOnlyCollection<string> roles, AdminActor actor, CancellationToken ct)
         {
             if (Refuse(actor) is { } refusal)
@@ -415,12 +464,14 @@ namespace kdyf.Authorization.Administration
 
         // ── Roles ────────────────────────────────────────────────────────────────
 
+        /// <inheritdoc />
         public async Task<ValidationResult<List<RoleResponse>>> ListRolesAsync(AdminActor actor, CancellationToken ct)
         {
             var context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
             return Outcome.Ok(context.Map.Roles.Select(value => ToRoleResponse(value, context, actor)).ToList());
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<RoleResponse>> GetRoleAsync(string roleValue, AdminActor actor, CancellationToken ct)
         {
             var context = await RoleContextAsync(actor, await HeldRolesAsync(ct), ct);
@@ -429,6 +480,7 @@ namespace kdyf.Authorization.Administration
                 : Outcome.Error<RoleResponse>("roleValue", $"There is no role '{roleValue}'.");
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<RoleResponse>> CreateRoleAsync(CreateRoleRequest request, AdminActor actor, CancellationToken ct)
         {
             if (Refuse(actor) is { } refusal)
@@ -470,6 +522,7 @@ namespace kdyf.Authorization.Administration
             return await GetRoleAsync(value, actor, ct);
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<RoleResponse>> UpdateRoleAsync(
             string roleValue, UpdateRoleRequest request, AdminActor actor, CancellationToken ct)
         {
@@ -494,6 +547,12 @@ namespace kdyf.Authorization.Administration
             if (role.Name == name && role.Description == description)
                 return await GetRoleAsync(roleValue, actor, ct);
 
+            // What a role is called is what another administrator reads when giving it: renaming one that grants more than
+            // the caller holds is refused, as changing what it grants would be.
+            _roles.Invalidate();
+            if (!(await _roles.GetAsync(ct)).IsCoveredBy(roleValue, actor.Permissions))
+                return Outcome.Error<RoleResponse>("roleValue", "It grants permissions you do not hold: you cannot rename it.");
+
             var details = JsonSerializer.Serialize(new
             {
                 name = new { from = role.Name, to = name },
@@ -507,6 +566,7 @@ namespace kdyf.Authorization.Administration
             return await GetRoleAsync(roleValue, actor, ct);
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<bool>> DeleteRoleAsync(string roleValue, AdminActor actor, CancellationToken ct)
         {
             if (Refuse(actor) is { } refusal)
@@ -548,6 +608,7 @@ namespace kdyf.Authorization.Administration
             return Outcome.Ok(true);
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<RoleResponse>> SetRolePermissionsAsync(
             string roleValue, SetRolePermissionsRequest request, AdminActor actor, CancellationToken ct)
         {
@@ -569,6 +630,11 @@ namespace kdyf.Authorization.Administration
                 var rows = _context.Set<RolePermissionRow>();
                 rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue && removed.Contains(r.PermissionCode)).ToListAsync(ct));
                 rows.AddRange(added.Select(code => new RolePermissionRow { RoleValue = roleValue, PermissionCode = code }));
+
+                // Taking a permission away from a role can take the administration from everybody holding it: counted
+                // again under the administrators' lock, on the current map.
+                if (removed.Count > 0 && await RecheckAdministratorsAsync(null, ct, (roleValue, changed.GrantsOf(roleValue))) is { } stillOne)
+                    return Outcome.Error<RoleResponse>(stillOne.Field, stillOne.Message);
 
                 _audit.Record(AuditActor.From(actor.Identity), new AuditEntry(
                     "role.permissions.changed", "role", roleValue, context.NameOf(roleValue), details));
@@ -646,6 +712,9 @@ namespace kdyf.Authorization.Administration
             if (role is null)
                 return Outcome.Error<RoleResponse>("roleValue", $"There is no role '{roleValue}'.");
 
+            // Read fresh: a stale map here would carry this instance's old grants into a rename and undo a change another
+            // instance saved.
+            _roles.Invalidate();
             var current = (await _roles.GetAsync(ct)).GrantsOf(roleValue);
             var requested = request.Permissions is null ? current.ToList() : Codes(request.Permissions);
             var plan = await PlanPermissionsAsync(roleValue, requested, request.Version, actor, ct);
@@ -656,6 +725,10 @@ namespace kdyf.Authorization.Administration
             var renamed = role.Name != name || role.Description != description;
             if (!renamed && added.Count == 0 && removed.Count == 0)
                 return Outcome.Ok(ToRoleResponse(roleValue, context, actor));
+
+            // The same rule as a rename alone: the plan checks only what changes in the grants, not what the role already grants.
+            if (renamed && !context.Map.IsCoveredBy(roleValue, actor.Permissions))
+                return Outcome.Error<RoleResponse>("roleValue", "It grants permissions you do not hold: you cannot rename it.");
 
             var details = JsonSerializer.Serialize(new
             {
@@ -673,6 +746,9 @@ namespace kdyf.Authorization.Administration
                 rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue && removed.Contains(r.PermissionCode)).ToListAsync(ct));
                 rows.AddRange(added.Select(code => new RolePermissionRow { RoleValue = roleValue, PermissionCode = code }));
 
+                if (removed.Count > 0 && await RecheckAdministratorsAsync(null, ct, (roleValue, plan.Changed!.GrantsOf(roleValue))) is { } stillOne)
+                    return Outcome.Error<RoleResponse>(stillOne.Field, stillOne.Message);
+
                 _audit.Record(AuditActor.From(actor.Identity), new AuditEntry("role.updated", "role", roleValue, name, details));
                 await _context.SaveChangesAsync(ct);
                 await transaction.CommitAsync(ct);
@@ -688,6 +764,7 @@ namespace kdyf.Authorization.Administration
 
         // ── What is left behind ──────────────────────────────────────────────────
 
+        /// <inheritdoc />
         public async Task<ValidationResult<RoleConsistencyResponse>> CheckRoleConsistencyAsync(AdminActor actor, CancellationToken ct)
         {
             try
@@ -701,6 +778,7 @@ namespace kdyf.Authorization.Administration
             }
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<OrphanCleanupResponse>> DeleteOrphansAsync(AdminActor actor, CancellationToken ct)
         {
             if (Refuse(actor) is { } refusal)
@@ -825,6 +903,7 @@ namespace kdyf.Authorization.Administration
             };
         }
 
+        /// <inheritdoc />
         public Task<ValidationResult<List<PermissionResponse>>> ListPermissionsAsync(CancellationToken ct) =>
             Task.FromResult(Outcome.Ok(_declared.Permissions.Select(p => new PermissionResponse
             {
@@ -941,6 +1020,67 @@ namespace kdyf.Authorization.Administration
             }
 
             return ("roles", "This change would leave nobody able to administer access. Give the administration to somebody else first.");
+        }
+
+        /// <summary>
+        /// The lockout guard again, made safe against a concurrent change: inside the caller's transaction, takes the
+        /// administrators' lock (SQL Server: <c>sp_getapplock</c>, held until the transaction ends) and counts on fresh data.
+        /// Two administrators removing each other at the same moment are then serialized: the second one sees the first
+        /// change, and is refused if it would leave nobody.
+        /// </summary>
+        /// <param name="except">The person whose administration the change takes away, if it is one person's.</param>
+        /// <param name="ct">Cancels the wait for the lock and the reads.</param>
+        /// <param name="change">The role this change edits and what it will grant, if it edits one.</param>
+        /// <remarks>
+        /// What the roles grant is read here, after the lock and through this transaction — not from the map provider, whose
+        /// copy may predate a change another administrator committed while this one waited for the lock.
+        /// </remarks>
+        private async Task<(string Field, string Message)?> RecheckAdministratorsAsync(
+            string? except, CancellationToken ct, (string RoleValue, IReadOnlySet<string> Grants)? change = null)
+        {
+            try
+            {
+                if (_context.Database.ProviderName == "Microsoft.EntityFrameworkCore.SqlServer")
+                    await _context.Database.ExecuteSqlRawAsync($"""
+                        DECLARE @result INT;
+                        EXEC @result = sp_getapplock @Resource = N'kdyf.authorization.administrators', @LockMode = N'Exclusive',
+                                                     @LockOwner = N'Transaction', @LockTimeout = 15000;
+                        IF @result < 0 THROW 50000, N'{LockBusy}', 1;
+                        """, ct);
+            }
+            catch (System.Data.Common.DbException ex) when (ex.Message.Contains(LockBusy, StringComparison.Ordinal))
+            {
+                // Another administrator held the lock for the whole wait: a refusal to retry, not a server error.
+                _context.ChangeTracker.Clear();
+                return ("roles", LockBusy);
+            }
+
+            var map = await CommittedMapAsync(ct);
+            if (change is { } edit)
+                map = map.With(edit.RoleValue, edit.Grants.ToList());
+
+            var refusal = await LeavesAnAdministratorAsync(map, await HeldRolesAsync(ct), except, ct);
+
+            // What the caller staged for this change must not ride along on a later save in the same scope.
+            if (refusal is not null)
+                _context.ChangeTracker.Clear();
+            return refusal;
+        }
+
+        private const string LockBusy = "Somebody else is changing the administrators right now: try again.";
+
+        /// <summary>What the roles grant, as committed: the rows this context has staged and not saved yet are not in it.</summary>
+        private async Task<RolePermissionMap> CommittedMapAsync(CancellationToken ct)
+        {
+            var roles = await _context.Set<RoleRow>().AsNoTracking().Select(r => r.RoleValue).ToListAsync(ct);
+            var grants = (await _context.Set<RolePermissionRow>().AsNoTracking()
+                    .Select(r => new { r.RoleValue, r.PermissionCode }).ToListAsync(ct))
+                .ToLookup(r => r.RoleValue, r => r.PermissionCode, StringComparer.Ordinal);
+
+            return new RolePermissionMap(
+                roles.ToDictionary(role => role, role => (IReadOnlySet<string>)grants[role].ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal),
+                _declared.Codes,
+                _roles.MemberCodes);
         }
 
         /// <summary>Saves the staged change and its audit entry. If Graph already changed, the log line is the record.</summary>

@@ -26,6 +26,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         }
     }
 
+    /// <summary>Registration of the EF Core store on the authorization builder.</summary>
     public static class EntityFrameworkStoreExtensions
     {
         /// <summary>

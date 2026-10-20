@@ -511,6 +511,47 @@ public sealed class AddKdyfAuthorizationTests
     }
 
     /// <summary>
+    /// A token proves an account of the tenant, not that the application lets it in: the fallback and the default
+    /// policies demand the access gate too. The session policy does not, so who-am-I can tell somebody they have no access.
+    /// </summary>
+    [TestMethod]
+    public void The_fallback_and_default_policies_demand_the_access_gate()
+    {
+        using var provider = Build(With());
+        var authorization = provider.GetRequiredService<IOptions<AuthorizationOptions>>().Value;
+
+        foreach (var policy in new[] { authorization.FallbackPolicy!, authorization.DefaultPolicy })
+            CollectionAssert.Contains(policy.Requirements.ToArray(), AccessGateRequirement.Instance);
+
+        var signedIn = authorization.GetPolicy(kdyf.Authorization.AspNetCore.KdyfAuthorizationPolicies.SignedIn)!;
+        CollectionAssert.AreEquivalent(new[] { "Bearer", "PAT" }, signedIn.AuthenticationSchemes.ToArray());
+        CollectionAssert.DoesNotContain(signedIn.Requirements.ToArray(), AccessGateRequirement.Instance);
+        Assert.IsTrue(signedIn.Requirements.OfType<Microsoft.AspNetCore.Authorization.Infrastructure.DenyAnonymousAuthorizationRequirement>().Any());
+
+        var services = new ServiceCollection();
+        Register(services, With());
+        Assert.IsTrue(services.Any(d => d.ServiceType == typeof(IAuthorizationHandler) && d.ImplementationType == typeof(AccessGateAuthorizationHandler)));
+    }
+
+    [TestMethod]
+    public void SignedInIsEnough_leaves_the_gate_to_the_endpoints()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddKdyfAuthorization(Configuration(With()), auth => Providers(auth
+            .Declarations(typeof(AddKdyfAuthorizationTests).Assembly)
+            .SignedInIsEnough()));
+        using var provider = services.BuildServiceProvider();
+        var authorization = provider.GetRequiredService<IOptions<AuthorizationOptions>>().Value;
+
+        foreach (var policy in new[] { authorization.FallbackPolicy!, authorization.DefaultPolicy })
+        {
+            CollectionAssert.DoesNotContain(policy.Requirements.ToArray(), AccessGateRequirement.Instance);
+            Assert.IsTrue(policy.Requirements.OfType<Microsoft.AspNetCore.Authorization.Infrastructure.DenyAnonymousAuthorizationRequirement>().Any());
+        }
+    }
+
+    /// <summary>
     /// The default scheme forwards by the Authorization header — "PAT …" to the PAT scheme, anything else to the
     /// identity provider's JWT — so the authentication middleware authenticates both kinds of caller.
     /// </summary>

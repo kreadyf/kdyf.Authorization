@@ -1,16 +1,16 @@
 namespace kdyf.Authorization.Migrations.Schema
 {
     /// <summary>A column the schema must have.</summary>
-    public sealed record ColumnSpec(string Name, string Type, bool Nullable = false, bool Identity = false, string? Collation = null);
+    internal sealed record ColumnSpec(string Name, string Type, bool Nullable = false, bool Identity = false, string? Collation = null);
 
     /// <summary>An index the schema must have; <see cref="Name"/> is what the steps create.</summary>
-    public sealed record IndexSpec(string Name, IReadOnlyList<string> Columns, bool Unique = false, string? Filter = null);
+    internal sealed record IndexSpec(string Name, IReadOnlyList<string> Columns, bool Unique = false, string? Filter = null);
 
     /// <summary>A foreign key the schema must have, with its action on delete.</summary>
-    public sealed record ForeignKeySpec(string Name, IReadOnlyList<string> Columns, string ReferencedTable, IReadOnlyList<string> ReferencedColumns, string OnDelete);
+    internal sealed record ForeignKeySpec(string Name, IReadOnlyList<string> Columns, string ReferencedTable, IReadOnlyList<string> ReferencedColumns, string OnDelete);
 
     /// <summary>A table the schema must have.</summary>
-    public sealed record TableSpec(
+    internal sealed record TableSpec(
         string Name,
         IReadOnlyList<ColumnSpec> Columns,
         string PrimaryKeyName,
@@ -23,7 +23,7 @@ namespace kdyf.Authorization.Migrations.Schema
     /// adopted, and what <c>verify</c> checks. Version 1 is the shape the reference databases already have; the EF model of the
     /// packages is aligned to the latest version, and a test holds the two together.
     /// </summary>
-    public static class SchemaManifest
+    internal static class SchemaManifest
     {
         /// <summary>The binary collation of role values and permission codes.</summary>
         public const string Bin2 = "Latin1_General_100_BIN2";

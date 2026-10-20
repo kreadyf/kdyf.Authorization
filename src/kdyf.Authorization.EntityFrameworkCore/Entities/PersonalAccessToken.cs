@@ -6,6 +6,7 @@ namespace kdyf.Authorization.EntityFrameworkCore.Entities
     /// </summary>
     public class PersonalAccessToken
     {
+        /// <summary>The key.</summary>
         public int PersonalAccessTokenId { get; set; }
 
         /// <summary>Human-readable label for the token.</summary>
@@ -33,8 +34,13 @@ namespace kdyf.Authorization.EntityFrameworkCore.Entities
         /// <summary>Expiration (UTC). Null = never expires.</summary>
         public DateTime? ExpiresAt { get; set; }
 
+        /// <summary>When the token was created (UTC).</summary>
         public DateTime CreatedAt { get; set; }
 
+        /// <summary>
+        /// The token's last successful use (UTC), recorded at most once every five minutes and best-effort. Null when it
+        /// was never used.
+        /// </summary>
         public DateTime? LastUsedAt { get; set; }
 
         // A token has NO roles of its own on purpose: it grants what its owner can do at that moment,

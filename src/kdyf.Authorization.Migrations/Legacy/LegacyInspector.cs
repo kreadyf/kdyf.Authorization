@@ -4,7 +4,7 @@ using Microsoft.Data.SqlClient;
 namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary>Reads a legacy schema and reports on it. Read-only: safe against any database, production included.</summary>
-    public static class LegacyInspector
+    internal static class LegacyInspector
     {
         public static async Task<(LegacyShape Shape, LegacyReport? Report)> InspectAsync(
             string connectionString, string legacySchema, IReadOnlyDictionary<int, string>? overrides = null, CancellationToken cancellationToken = default)

@@ -24,7 +24,7 @@ namespace kdyf.Authorization.Simulation
     /// made during authentication, and a refusal should not reach an endpoint.
     /// </para>
     /// </remarks>
-    public sealed class UserSimulationMiddleware
+    internal sealed class UserSimulationMiddleware
     {
         private readonly RequestDelegate _next;
 
@@ -44,6 +44,7 @@ namespace kdyf.Authorization.Simulation
         }
     }
 
+    /// <summary>Adds the middleware that answers a refused simulation attempt.</summary>
     public static class UserSimulationApplicationBuilderExtensions
     {
         /// <summary>

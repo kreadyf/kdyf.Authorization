@@ -17,6 +17,10 @@ namespace kdyf.Authorization.Administration.Validation
     /// </remarks>
     public class ValidationResult
     {
+        /// <summary>
+        /// Creates the envelope. With <paramref name="isValid"/> null the result starts INVALID
+        /// (<see cref="Validation.IsValid"/> defaults to false): say <c>true</c> for a success.
+        /// </summary>
         public ValidationResult(bool? isValid = null)
         {
             Validation = new MultipleFieldValidation();
@@ -25,6 +29,7 @@ namespace kdyf.Authorization.Administration.Validation
                 Validation.IsValid = isValid.Value;
         }
 
+        /// <summary>Whether the operation was accepted, with the general and per-field errors when it was not.</summary>
         public MultipleFieldValidation Validation { get; set; }
     }
 
@@ -34,20 +39,24 @@ namespace kdyf.Authorization.Administration.Validation
     {
         // 'default!' and not a nullable type: the serialized shape has to stay the same, and in an
         // invalid result this field is simply not read.
+        /// <summary>The payload. Only meaningful when <see cref="ValidationResult.Validation"/> is valid.</summary>
         public T Data { get; set; } = default!;
     }
 
     /// <summary>Result of a validation: whether it is valid, and its messages.</summary>
     public class Validation
     {
+        /// <summary>Creates an invalid validation with no errors yet.</summary>
         public Validation()
         {
             IsValid = false;
             Errors = new List<string>();
         }
 
+        /// <summary>Whether it is valid. False by default; adding any error sets it to false.</summary>
         public bool IsValid { get; set; }
 
+        /// <summary>General messages, not tied to a field.</summary>
         public List<string> Errors { get; set; }
     }
 
@@ -61,18 +70,22 @@ namespace kdyf.Authorization.Administration.Validation
     /// </remarks>
     public class MultipleFieldValidation : Validation
     {
+        /// <summary>Creates an invalid validation with no errors and no fields yet.</summary>
         public MultipleFieldValidation() : base()
         {
             Fields = new Dictionary<string, Validation>();
         }
 
+        /// <summary>Per-field validations, keyed by field name. Read <c>Fields[field].Errors</c>.</summary>
         public Dictionary<string, Validation> Fields { get; set; }
 
+        /// <summary>Adds an error to <paramref name="fieldName"/>; the field and the whole result become invalid.</summary>
         public void AddFieldError(string fieldName, string message)
         {
             AddFieldErrors(fieldName, new[] { message });
         }
 
+        /// <summary>Adds errors to <paramref name="fieldName"/>; the field and the whole result become invalid.</summary>
         public void AddFieldErrors(string fieldName, string[] messages)
         {
             if (!Fields.ContainsKey(fieldName))
@@ -84,6 +97,7 @@ namespace kdyf.Authorization.Administration.Validation
             IsValid = false;
         }
 
+        /// <summary>Adds a general error; the result becomes invalid.</summary>
         public void AddError(string message)
         {
             Errors.Add(message);

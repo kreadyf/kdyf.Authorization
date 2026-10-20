@@ -30,6 +30,7 @@ namespace kdyf.Authorization.Abstractions
     /// </remarks>
     public interface IUserActivityRecorder
     {
+        /// <summary>Records that <paramref name="user"/> was seen on a request of their own.</summary>
         Task RecordAsync(UserIdentity user, CancellationToken cancellationToken = default);
     }
 }

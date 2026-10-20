@@ -32,6 +32,7 @@ namespace kdyf.Authorization.Authorization
         private readonly IPrincipalPermissionResolver _permissions;
         private readonly ILogger<PolicyReport> _logger;
 
+        /// <summary>For the container; registered by <c>AddPolicies</c>.</summary>
         public PolicyReport(PolicyCatalog catalog, IPrincipalPermissionResolver permissions, ILogger<PolicyReport> logger)
         {
             _catalog = catalog;

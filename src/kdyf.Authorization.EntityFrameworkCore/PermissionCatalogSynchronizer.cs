@@ -69,6 +69,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         private readonly IHostEnvironment _environment;
         private readonly ILogger<PermissionCatalogSynchronizer<TContext>> _logger;
 
+        /// <summary>For the container.</summary>
         public PermissionCatalogSynchronizer(
             IServiceProvider services,
             PermissionCatalogSyncOptions options,
@@ -81,6 +82,15 @@ namespace kdyf.Authorization.EntityFrameworkCore
             _logger = logger;
         }
 
+        /// <summary>
+        /// Runs the synchronisation once, at startup: inserts the missing rows and updates changed names and descriptions,
+        /// or only logs them under <see cref="PermissionCatalogSyncOptions.ReportOnly"/>.
+        /// </summary>
+        /// <remarks>
+        /// An invalid, duplicated or miscased declaration, or a write that was refused, throws
+        /// <see cref="InvalidOperationException"/> outside Production and is logged as critical in Production. A catalog
+        /// that cannot be read is logged and the synchronisation is skipped: the host still starts.
+        /// </remarks>
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             var declared = _options.Declarations.Count > 0
@@ -351,6 +361,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         private static string Codes(IEnumerable<Declaration> permissions) =>
             string.Join(", ", permissions.Select(p => p.Code));
 
+        /// <summary>Nothing to stop.</summary>
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

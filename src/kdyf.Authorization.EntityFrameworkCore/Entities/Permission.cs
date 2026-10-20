@@ -17,6 +17,7 @@ namespace kdyf.Authorization.EntityFrameworkCore.Entities
         /// <summary>Human-readable name of the permission.</summary>
         public string? Name { get; set; }
 
+        /// <summary>What holding it allows. Written from the declaration by the synchronizer.</summary>
         public string? Description { get; set; }
     }
 }

@@ -2,26 +2,26 @@ using kdyf.Authorization.Migrations.Schema;
 
 namespace kdyf.Authorization.Migrations.Legacy
 {
-    public sealed record TargetRole(int LegacyRoleId, string RoleValue, string Name, string? Description);
+    internal sealed record TargetRole(int LegacyRoleId, string RoleValue, string Name, string? Description);
 
-    public sealed record TargetGrant(string RoleValue, string PermissionCode);
+    internal sealed record TargetGrant(string RoleValue, string PermissionCode);
 
-    public sealed record TargetProfile(string ObjectId, int LegacyUserId, string Email, string? DisplayName, bool IsActive, DateTime CreatedAt);
+    internal sealed record TargetProfile(string ObjectId, int LegacyUserId, string Email, string? DisplayName, bool IsActive, DateTime CreatedAt);
 
-    public sealed record TargetUserRole(string ObjectId, string RoleValue);
+    internal sealed record TargetUserRole(string ObjectId, string RoleValue);
 
-    public sealed record TargetToken(
+    internal sealed record TargetToken(
         int LegacyId, byte[] TokenHash, string Name, string? TokenPrefix, string OwnerObjectId, string OwnerLabel, bool IsActive,
         DateTime? ExpiresAt, DateTime CreatedAt, DateTime? LastUsedAt);
 
     /// <summary>Something the import decided, or refuses to decide alone. Kept in <c>MigrationIssue</c>, by legacy id.</summary>
-    public sealed record ImportIssue(IssueSeverity Severity, string Code, int? LegacyUserId, string Detail)
+    internal sealed record ImportIssue(IssueSeverity Severity, string Code, int? LegacyUserId, string Detail)
     {
         public override string ToString() => $"{Severity.ToString().ToUpperInvariant()} {Code}{(LegacyUserId is null ? "" : $" (user {LegacyUserId})")}: {Detail}";
     }
 
     /// <summary>The choices of the import that are not in the data.</summary>
-    public sealed class LegacyImportSettings
+    internal sealed class LegacyImportSettings
     {
         /// <summary>
         /// The legacy role given to everybody who signed in (<c>Default</c>): not copied. The base access comes from the new
@@ -39,7 +39,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         public IReadOnlySet<string> Approvals { get; init; } = new HashSet<string>();
     }
 
-    public static class LegacyImportApprovals
+    internal static class LegacyImportApprovals
     {
         /// <summary>Import although users who passed the legacy gate and hold roles have no usable identity: they lose their access.</summary>
         public const string UnresolvedUsers = "unresolved-users";
@@ -53,7 +53,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// Nothing is widened: a token limited to some roles, the bootstrap token and a token whose owner has no identity are
     /// copied inactive; a code the host does not declare is not copied; wildcards are copied as they are, never expanded.
     /// </remarks>
-    public sealed class LegacyImportPlan
+    internal sealed class LegacyImportPlan
     {
         public required IReadOnlyList<TargetRole> Roles { get; init; }
         public required IReadOnlyList<TargetGrant> Grants { get; init; }

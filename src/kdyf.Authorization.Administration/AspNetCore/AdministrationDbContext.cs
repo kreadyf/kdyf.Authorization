@@ -20,6 +20,7 @@ namespace kdyf.Authorization.Administration.AspNetCore
     {
         private readonly string _schema;
 
+        /// <summary>Creates the context. <paramref name="store"/> gives the schema the tables live in.</summary>
         public AdministrationDbContext(DbContextOptions<AdministrationDbContext> options, IOptions<AuthorizationStoreOptions> store)
             : base(options)
         {
@@ -33,6 +34,7 @@ namespace kdyf.Authorization.Administration.AspNetCore
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
             optionsBuilder.ReplaceService<Microsoft.EntityFrameworkCore.Infrastructure.IModelCacheKeyFactory, SchemaModelCacheKeyFactory>();
 
+        /// <summary>Applies the authorization model and the administration model (the audit log) in the configured schema.</summary>
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);

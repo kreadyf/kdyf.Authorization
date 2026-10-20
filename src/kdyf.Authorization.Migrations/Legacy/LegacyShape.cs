@@ -7,7 +7,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// <param name="Supported">Whether it can be imported.</param>
     /// <param name="Description">What it is, for a person.</param>
     /// <param name="Notes">What else the catalog shows (an EF-created table, a missing index).</param>
-    public sealed record LegacyShape(string Label, bool Supported, string Description, IReadOnlyList<string> Notes);
+    internal sealed record LegacyShape(string Label, bool Supported, string Description, IReadOnlyList<string> Notes);
 
     /// <summary>
     /// Tells the legacy shapes apart from the catalog, by what each history step added or removed:
@@ -20,7 +20,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// <item><b>K0</b>: a host before its alignment: <c>objectId nvarchar(100)</c>, with or without tokens and audit log.</item>
     /// </list>
     /// </summary>
-    public static class LegacyShapes
+    internal static class LegacyShapes
     {
         public static LegacyShape Classify(SchemaSnapshot snapshot)
         {

@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 // 'using Microsoft.Extensions.DependencyInjection;' to find this.
 namespace Microsoft.Extensions.DependencyInjection
 {
-    public static class AuthAdministrationExtensions
+    internal static class AuthAdministrationExtensions
     {
         /// <summary>
         /// Registers the administration services (access, personal tokens, directory and audit) against
@@ -58,7 +58,11 @@ namespace Microsoft.Extensions.DependencyInjection
 
             return services;
         }
+    }
 
+    /// <summary>Registration of the SMTP invitation e-mails of the administration.</summary>
+    public static class SmtpInvitationNotifierExtensions
+    {
         /// <summary>
         /// Makes the application send the invitation e-mails itself, over SMTP, instead of leaving them to
         /// the directory.

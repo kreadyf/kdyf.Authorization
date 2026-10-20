@@ -349,6 +349,23 @@ public sealed class UserLifecycleTests
         Assert.AreEqual(0, _f.Entra.Writes.Count);
     }
 
+    /// <summary>
+    /// Inviting somebody who is in the tenant but outside the group brings them in, which switches their roles from before
+    /// back on: a lesser administrator cannot do that for a full one, even with an invitation that gives no role.
+    /// </summary>
+    [TestMethod]
+    public async Task An_invitation_cannot_switch_on_roles_left_behind_beyond_the_caller()
+    {
+        _f.Entra.LeaveGroup(People.Admin);
+
+        var result = await Directory().InviteAsync(new InviteRequest { Email = "admin@test" }, _f.Actor(People.Manager), default);
+
+        Assert.IsFalse(result.Validation.IsValid);
+        StringAssert.Contains(Errors(result), "App.Admin");
+        Assert.AreEqual(0, _f.Entra.Writes.Count, "not brought back into the group");
+        Assert.AreEqual(0, _f.Audit().Count);
+    }
+
     /// <summary>Somebody already in the application keeps what they hold: the roles are added, never replaced.</summary>
     [TestMethod]
     public async Task Inviting_somebody_who_holds_roles_adds_to_them()
@@ -425,6 +442,39 @@ public sealed class UserLifecycleTests
         Assert.IsTrue(result.Validation.IsValid, Errors(result));
         Assert.AreEqual("role.updated", _f.Audit().Single().Action);
         CollectionAssert.AreEqual(new[] { "apitest.Read" }, _f.Grants("App.Reader"));
+    }
+
+    /// <summary>
+    /// What a role is called is what another administrator reads when giving it: a lesser administrator cannot rename the
+    /// full administrators' role into something harmless-looking.
+    /// </summary>
+    [TestMethod]
+    public async Task A_role_beyond_the_caller_cannot_be_renamed()
+    {
+        var result = await _f.Access().UpdateRoleAsync("App.Admin", new UpdateRoleRequest { Name = "Read-only viewer" }, _f.Actor(People.Manager), default);
+
+        Assert.IsFalse(result.Validation.IsValid);
+        _f.Db.ChangeTracker.Clear();
+        Assert.AreNotEqual("Read-only viewer", _f.Db.Set<Role>().AsNoTracking().Single(r => r.RoleValue == "App.Admin").Name);
+        Assert.AreEqual(0, _f.Audit().Count);
+    }
+
+    /// <summary>With a version, or with its unchanged permissions, a rename goes the atomic way: the same rule holds there.</summary>
+    [TestMethod]
+    public async Task A_role_beyond_the_caller_cannot_be_renamed_with_a_version_or_its_permissions()
+    {
+        var read = (await _f.Access().GetRoleAsync("App.Admin", _f.Actor(People.Admin), default)).Data;
+
+        var withVersion = await _f.Access().UpdateRoleAsync("App.Admin",
+            new UpdateRoleRequest { Name = "Read-only viewer", Version = read.Version }, _f.Actor(People.Manager), default);
+        var withPermissions = await _f.Access().UpdateRoleAsync("App.Admin",
+            new UpdateRoleRequest { Name = "Read-only viewer", Permissions = _f.Grants("App.Admin").ToList() }, _f.Actor(People.Manager), default);
+
+        Assert.IsFalse(withVersion.Validation.IsValid);
+        Assert.IsFalse(withPermissions.Validation.IsValid);
+        _f.Db.ChangeTracker.Clear();
+        Assert.AreNotEqual("Read-only viewer", _f.Db.Set<Role>().AsNoTracking().Single(r => r.RoleValue == "App.Admin").Name);
+        Assert.AreEqual(0, _f.Audit().Count);
     }
 
     // ── Plumbing ─────────────────────────────────────────────────────────────

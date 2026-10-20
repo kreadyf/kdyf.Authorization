@@ -1,13 +1,18 @@
-# Publish a version: push a tag v<version> on master (v1.0.0-preview.3, v1.0.0).
+# Publish a version: push a tag v<version> on master (v1.0.0, v1.1.0-preview.1).
 # Builds and tests the tagged commit, packs every package with the tag's version, publishes them to nuget.org and
 # creates the GitHub release with the packages attached — a pre-release when the version has a suffix.
+#
+# Two jobs, so that no step that runs the repository's code (restore, build, tests) holds a write permission:
+#   build    read-only: builds, tests and packs, and hands the packages over as an artifact;
+#   publish  in the "nuget" environment, with the only write permissions (the OIDC token and the release): it runs no
+#            code of the repository, it pushes what build produced.
 #
 # No API key is stored anywhere: nuget.org trusts this workflow (Trusted Publishing, OIDC) and hands it a key that lasts
 # one hour. One-off setup on nuget.org (Account -> Trusted Publishing -> add a policy):
 #   Repository Owner: kreadyf   Repository: kdyf.Authorization   Workflow File: release.yml   Environment: nuget
 #   Scopes: publish new packages and new versions, pattern kdyf.Authorization*
 # and in the repository, the variable NUGET_USER (Settings -> Secrets and variables -> Actions -> Variables): the nuget.org
-# profile name, not the e-mail address. The job runs in the "nuget" environment, which can require an approval.
+# profile name, not the e-mail address. The publish job runs in the "nuget" environment, which can require an approval.
 
 name: Release
 
@@ -16,17 +21,21 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write   # the GitHub release
-  id-token: write   # the OIDC token that nuget.org exchanges for a short-lived API key
+  contents: read
 
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45   # the migration tests run against SQL Server on both frameworks
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -40,12 +49,12 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 12
-    environment: nuget
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false   # the token is not left in .git/config for the build and the tests to read
 
       - name: Version from the tag
         id: version
@@ -54,7 +63,7 @@ jobs:
           version="${tag#v}"
           # SemVer 2 as NuGet reads it: 1.2.3, 1.2.3-preview.4. A leading zero in a number is refused (preview.01).
           if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?$ ]]; then
-            echo "::error::The tag '$tag' is not v<SemVer 2 version>, e.g. v1.0.0-preview.2 or v1.0.0."
+            echo "::error::The tag '$tag' is not v<SemVer 2 version>, e.g. v1.0.0 or v1.1.0-preview.1."
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -62,8 +71,8 @@ jobs:
 
       # Only what is on master is published: a tag on another branch stops here.
       - name: The tag is on master
+        # fetch-depth 0 already brought every branch: origin/master is there, no fetch (and no credential) needed.
         run: |
-          git fetch origin master
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
             echo "::error::$GITHUB_REF_NAME is not on master. Merge develop into master and tag master."
             exit 1
@@ -86,6 +95,32 @@ jobs:
           dotnet pack kdyf.Authorization.slnx --configuration Release --no-build --output artifacts/packages
           -p:Version=${{ steps.version.outputs.version }}
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: artifacts/packages
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      contents: write   # the GitHub release
+      id-token: write   # the OIDC token that nuget.org exchanges for a short-lived API key
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: artifacts/packages
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
       # The key lives one hour: asked for right before the push, after the build and the tests.
       - name: NuGet login (OIDC -> short-lived API key)
         uses: NuGet/login@v1
@@ -101,7 +136,13 @@ jobs:
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          flags=(--generate-notes --title "kdyf.Authorization ${{ steps.version.outputs.version }}")
-          [ "${{ steps.version.outputs.prerelease }}" = "true" ] && flags+=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" artifacts/packages/* "${flags[@]}"
+          flags=(--generate-notes --title "kdyf.Authorization ${{ needs.build.outputs.version }}")
+          [ "${{ needs.build.outputs.prerelease }}" = "true" ] && flags+=(--prerelease)
+          # A re-run (the push succeeded, the release did not) finds it there: the packages are uploaded again instead.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" artifacts/packages/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" artifacts/packages/* "${flags[@]}"
+          fi

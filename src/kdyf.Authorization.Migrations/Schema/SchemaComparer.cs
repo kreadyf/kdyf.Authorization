@@ -16,6 +16,7 @@ namespace kdyf.Authorization.Migrations.Schema
     /// <summary>One difference between the database and the manifest.</summary>
     public sealed record SchemaDifference(DifferenceKind Kind, string Table, string Description)
     {
+        /// <summary><c>[Kind] Table: Description</c>.</summary>
         public override string ToString() => $"[{Kind}] {Table}: {Description}";
     }
 
@@ -23,7 +24,7 @@ namespace kdyf.Authorization.Migrations.Schema
     /// Compares what the catalog says with what a version of the manifest expects. Tolerates, and only these: extra
     /// tables (backups, the host's own), extra indexes, other names for the same constraint, and defaults (not compared).
     /// </summary>
-    public static class SchemaComparer
+    internal static class SchemaComparer
     {
         /// <summary>The differences of the tables, at <paramref name="version"/>.</summary>
         public static IReadOnlyList<SchemaDifference> CompareTables(SchemaSnapshot snapshot, int version)

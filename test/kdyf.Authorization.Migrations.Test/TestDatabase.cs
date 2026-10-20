@@ -35,7 +35,7 @@ internal sealed partial class TestDatabase : IAsyncDisposable
             await using var command = new SqlCommand($"CREATE DATABASE [{name}]", connection) { CommandTimeout = 120 };
             await command.ExecuteNonQueryAsync();
         }
-        catch (SqlException ex)
+        catch (SqlException ex) when (Environment.GetEnvironmentVariable(Variable) is null)   // configured (CI): a failure, not a skip
         {
             Assert.Inconclusive($"No SQL Server for the integration tests ({ex.Message}). Start LocalDB or set {Variable}.");
         }

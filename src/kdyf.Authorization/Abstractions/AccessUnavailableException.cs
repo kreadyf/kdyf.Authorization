@@ -14,6 +14,8 @@ namespace kdyf.Authorization.Abstractions
         /// <summary>What the client reads.</summary>
         public const string Reason = "The access service is not available right now. Try again in a moment.";
 
+        /// <summary>Wraps <paramref name="inner"/> behind the fixed <see cref="Reason"/>.</summary>
+        /// <param name="inner">The real failure, for the log only.</param>
         public AccessUnavailableException(Exception inner) : base(Reason, inner) { }
 
         /// <summary>

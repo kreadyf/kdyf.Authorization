@@ -5,19 +5,24 @@ namespace kdyf.Authorization.Administration.Notifications
     /// </summary>
     public sealed class SmtpInvitationOptions
     {
+        /// <summary>The configuration section the options are bound from by convention.</summary>
         public const string SectionName = "SmtpAuthClient";
 
+        /// <summary>SMTP server host name. Required.</summary>
         public string Host { get; set; } = string.Empty;
+        /// <summary>SMTP server port. Defaults to 587.</summary>
         public int Port { get; set; } = 587;
 
         /// <summary>With port 587 this means STARTTLS, which is what Gmail and most servers expect.</summary>
         public bool EnableSsl { get; set; } = true;
 
+        /// <summary>Account to authenticate with. Required; also the default sender address.</summary>
         public string Username { get; set; } = string.Empty;
 
         /// <summary>Comes from the deployment. With Gmail it is an App Password, not the account one.</summary>
         public string Password { get; set; } = string.Empty;
 
+        /// <summary>Timeout of one send, in milliseconds. Defaults to 20000.</summary>
         public int Timeout { get; set; } = 20000;
 
         /// <summary>
@@ -54,6 +59,7 @@ namespace kdyf.Authorization.Administration.Notifications
 
         internal string EffectiveSubject => string.IsNullOrWhiteSpace(Subject) ? $"You have been invited to {ApplicationName}" : Subject;
 
+        /// <summary>Whether <see cref="Host"/>, <see cref="Username"/> and <see cref="Password"/> are all set: without them nothing can be sent.</summary>
         public bool IsConfigured =>
             !string.IsNullOrWhiteSpace(Host) &&
             !string.IsNullOrWhiteSpace(Username) &&

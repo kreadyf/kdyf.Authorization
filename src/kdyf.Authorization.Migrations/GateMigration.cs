@@ -8,7 +8,7 @@ namespace kdyf.Authorization.EntraId.Migration
     /// <param name="Assigned">People in the group who were given the assignment.</param>
     /// <param name="Unassigned">Assignments of people no longer in the group that were removed.</param>
     /// <param name="Failed">Changes Graph refused; the next pass tries them again.</param>
-    public sealed record GateMigrationResult(int Assigned, int Unassigned, int Failed);
+    internal sealed record GateMigrationResult(int Assigned, int Unassigned, int Failed);
 
     /// <summary>
     /// One pass of the migration: the assignments of the <c>Access</c> app role made equal to the access group — the
@@ -30,7 +30,7 @@ namespace kdyf.Authorization.EntraId.Migration
     /// everybody left, and emptying would lock everyone out the day the gate changes. It is logged instead.
     /// </para>
     /// </remarks>
-    public sealed class GateMigration
+    internal sealed class GateMigration
     {
         /// <summary>Who the audit log names for the sync's changes.</summary>
         public static readonly AuditActor Actor = new(null, "system:migration");

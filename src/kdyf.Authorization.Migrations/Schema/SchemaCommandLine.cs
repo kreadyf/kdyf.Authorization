@@ -26,12 +26,19 @@ namespace kdyf.Authorization.Migrations.Schema
     /// </remarks>
     public static class SchemaCommandLine
     {
+        /// <summary>The first argument that tells a host to run a command instead of starting.</summary>
         public const string Verb = "kdyf-auth";
 
+        /// <summary>Exit code: done.</summary>
         public const int Ok = 0;
+
+        /// <summary>Exit code: refused, failed or not verified.</summary>
         public const int NotDone = 1;
+
+        /// <summary>Exit code: wrong arguments.</summary>
         public const int Usage = 2;
 
+        /// <summary>The usage text: the commands and options.</summary>
         public static string Help => """
             kdyf-auth <command> [options]
 
@@ -79,6 +86,9 @@ namespace kdyf.Authorization.Migrations.Schema
               --legacy-schema <name> The legacy schema to read (default 'auth').
               --user-profiles        Keep a profile per person (UserProfile, version 4). The host's UserProfiles
                                      setting is the default; the legacy import needs it.
+              --connection-string <cs>
+                                     The dotnet tool only. Otherwise the connection string is read from
+                                     KDYF_AUTH_CONNECTION_STRING (first), or the host's configuration.
             """;
 
         /// <summary>Runs one command. <paramref name="args"/> start after <c>kdyf-auth</c>.</summary>

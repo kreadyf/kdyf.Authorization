@@ -5,7 +5,7 @@ using kdyf.Authorization.Abstractions;
 namespace kdyf.Authorization.Migrations.Legacy
 {
     /// <summary>A person as the directory knows them.</summary>
-    public sealed record DirectoryPerson(string ObjectId, string? UserPrincipalName, string? Mail, string? UserType, bool AccountEnabled)
+    internal sealed record DirectoryPerson(string ObjectId, string? UserPrincipalName, string? Mail, string? UserType, bool AccountEnabled)
     {
         public bool IsGuest => string.Equals(UserType, "Guest", StringComparison.OrdinalIgnoreCase);
     }
@@ -15,7 +15,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// <c>mail</c> equal to the e-mail; never <c>otherMails</c> or <c>proxyAddresses</c>, where an address can belong to
     /// somebody else.
     /// </summary>
-    public interface ILegacyDirectory
+    internal interface ILegacyDirectory
     {
         /// <summary>The person with this object id, or null.</summary>
         Task<DirectoryPerson?> GetAsync(string objectId, CancellationToken cancellationToken = default);
@@ -46,6 +46,10 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>The legacy schema to read (default <c>auth</c>).</summary>
         public string LegacySchema { get; set; } = "auth";
 
+        /// <summary>
+        /// Who passed the legacy application's gate (default <see cref="LegacyGate.Group"/>, which requires
+        /// <see cref="LegacyGroupId"/>). With <see cref="LegacyGate.Group"/>, tokens are exempt from the gate in the invariant.
+        /// </summary>
         public LegacyGate Gate { get; set; } = LegacyGate.Group;
 
         /// <summary>The legacy access group, for <see cref="LegacyGate.Group"/>.</summary>
@@ -74,7 +78,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     }
 
     /// <summary>How a legacy user was matched to a person in the directory.</summary>
-    public static class IdentityStatus
+    internal static class IdentityStatus
     {
         /// <summary>One enabled member: imported.</summary>
         public const string Ok = "ok";
@@ -100,7 +104,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     }
 
     /// <summary>One legacy user, resolved: who they are in the directory, how that was decided, and what the gates said.</summary>
-    public sealed record ResolvedIdentity(
+    internal sealed record ResolvedIdentity(
         int LegacyUserId,
         string Email,
         string? LegacyObjectId,
@@ -126,7 +130,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// Resolves the legacy users against the directory and takes the snapshot of both gates in the same pass. Never
     /// invents an identity: a user it cannot resolve exactly is left for a person to decide.
     /// </summary>
-    public sealed class IdentityResolver
+    internal sealed class IdentityResolver
     {
         private readonly ILegacyDirectory _directory;
         private readonly IMembershipSource _newGate;
@@ -225,7 +229,7 @@ namespace kdyf.Authorization.Migrations.Legacy
     }
 
     /// <summary>Whether the identities still describe the legacy users, and are recent enough to import from.</summary>
-    public static class IdentityFreshness
+    internal static class IdentityFreshness
     {
         /// <summary>Why the import may not use these identities now; empty when it may.</summary>
         public static IReadOnlyList<string> Problems(

@@ -16,8 +16,6 @@
   <PropertyGroup>
     <Description>Permission-based authorization for ASP.NET Core: permissions and policies declared as classes, wildcards, a cached permission store, personal access tokens (PAT) and read-only user simulation.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- CS1591: we do not require an XML comment on constructors and trivial overrides. -->
-    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <!-- FrameworkReference and not PackageReference: provides ASP.NET Core Authorization, Routing,
@@ -28,6 +26,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="kdyf.Authorization.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.Administration.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.AspNetCore.Test" />
   </ItemGroup>
 
 </Project>

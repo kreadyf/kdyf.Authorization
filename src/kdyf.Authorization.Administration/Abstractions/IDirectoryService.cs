@@ -30,6 +30,7 @@ namespace kdyf.Authorization.Administration.Abstractions
     /// <summary>The directory rejected the operation. Carries a message fit to show to an administrator.</summary>
     public sealed class DirectoryException : Exception
     {
+        /// <summary>Creates the exception with the message to show and, optionally, the underlying error.</summary>
         public DirectoryException(string message, Exception? inner = null) : base(message, inner) { }
     }
 

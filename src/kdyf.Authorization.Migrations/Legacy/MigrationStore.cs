@@ -1,4 +1,5 @@
 using System.Data.Common;
+using kdyf.Authorization.Migrations.Schema;
 
 namespace kdyf.Authorization.Migrations.Legacy
 {
@@ -53,6 +54,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>Replaces every identity and its gate snapshot, in one transaction.</summary>
         public static async Task SaveAsync(DbConnection connection, string schema, IReadOnlyCollection<ResolvedIdentity> identities, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(schema);
             await ExecuteAsync(connection, null, BootstrapSql(schema), cancellationToken);
             await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
             await ExecuteAsync(connection, transaction, $"DELETE FROM [{schema}].[{GateTable}]; DELETE FROM [{schema}].[{IdentityTable}];", cancellationToken);
@@ -75,6 +77,7 @@ namespace kdyf.Authorization.Migrations.Legacy
         /// <summary>The identities with their gate snapshot; empty when none were resolved.</summary>
         public static async Task<IReadOnlyList<ResolvedIdentity>> LoadAsync(DbConnection connection, string schema, CancellationToken cancellationToken)
         {
+            SchemaMigrationOptions.RequireSchemaName(schema);
             await using var command = connection.CreateCommand();
             command.CommandText = $"""
                 IF OBJECT_ID(N'[{schema}].[{IdentityTable}]') IS NULL OR OBJECT_ID(N'[{schema}].[{GateTable}]') IS NULL

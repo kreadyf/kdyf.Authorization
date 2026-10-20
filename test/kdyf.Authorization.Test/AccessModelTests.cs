@@ -136,6 +136,23 @@ namespace kdyf.Authorization.Test
             source.FailWith = null;
             Assert.IsTrue((await provider.GetAsync()).GrantsOf("Portal.Admin").Contains("*"));
         }
+
+        /// <summary>
+        /// A role changed and invalidated while the rows were being read: those rows may predate the change, so the map
+        /// read from them answers that request and is not kept for the next ones.
+        /// </summary>
+        [TestMethod]
+        public async Task An_invalidation_during_a_read_is_not_undone_by_it()
+        {
+            var source = new FakeRolePermissionSource(TestRoles.Grants());
+            var provider = RolePermissionMapProvider.ForSource(source, TestRoles.Declared(), TimeSpan.FromMinutes(2));
+            source.DuringRead = provider.Invalidate;
+
+            await provider.GetAsync();
+            await provider.GetAsync();
+
+            Assert.AreEqual(2, source.Reads);
+        }
     }
 
     /// <summary>The deployment that removes a permission class says so in its own log.</summary>
@@ -511,9 +528,17 @@ namespace kdyf.Authorization.Test
 
         internal Exception? FailWith { get; set; }
 
+        /// <summary>Runs once, while the rows are being read: what happens meanwhile.</summary>
+        internal Action? DuringRead { get; set; }
+
         public Task<IReadOnlyDictionary<string, IReadOnlySet<string>>> GetAllAsync(CancellationToken cancellationToken = default)
         {
             Reads++;
+            if (DuringRead is { } meanwhile)
+            {
+                DuringRead = null;
+                meanwhile();
+            }
             if (FailWith is not null)
                 throw FailWith;
             return Task.FromResult(_grants);

@@ -37,12 +37,30 @@ uses the administration services directly, and a host that keeps its own respons
 
 ## Getting started
 
+A host references `kdyf.Authorization.AspNetCore`, `kdyf.Authorization.EntityFrameworkCore` and
+`kdyf.Authorization.EntraId`, plus `kdyf.Authorization.Administration` to administer access and
+`kdyf.Authorization.Migrations` (or the `kdyf-auth` tool) to create the tables. In that order:
+
+1. **The tables**: `kdyf-auth apply` (see [Schema versions](#schema-versions)). The host does not create them, and does not
+   start below the version it requires.
+2. **The declarations**: permissions and policies as classes, in the assemblies the host names.
+3. **The composition** below. `UseKdyfAuthorization()` goes after `UseRouting()` (when the host calls it) and before the
+   endpoints; it runs authentication, simulation and authorization in that order.
+4. **The first administrator** (below): until somebody holds the administration permission, nobody can give roles.
+
 ```csharp
+// The composition methods need no using: they live in the namespaces a host already imports.
+using kdyf.Authorization.Abstractions;    // PermissionDefinition, for your permissions
+using kdyf.Authorization.Authorization;   // Policy, for your policies
+using kdyf.Authorization.AspNetCore;      // KdyfAuthorizationPolicies
+using Microsoft.EntityFrameworkCore;      // UseSqlServer
+
 // Permissions and policies are classes (PermissionDefinition, Policy), discovered in the assemblies you declare.
 // A permission's namespace is its area: a class in namespace 'global' declaring "Reports" is 'global.Reports'.
 
 builder.Services.AddKdyfAuthorization(builder.Configuration, "Authorization", auth => auth
     .Declarations(typeof(Program).Assembly)
+    .EveryMemberHolds(new MyBaseAccess())     // optional: a permission of yours every member of the gate holds without a role
     .UseEntityFrameworkStore((db, connectionString) => db.UseSqlServer(connectionString))
     .UseEntraId());
 
@@ -60,6 +78,39 @@ app.MapKdyfAuthorizationSession();            // auth/me, auth/policies
 app.MapKdyfAuthorizationAdministration();     // auth/users, auth/roles, auth/pat, ...
 app.MapKdyfAuthorizationSimulation();         // auth/simulation/start, end, candidates
 ```
+
+### Who gets in
+
+A token proves an account of the tenant, not that the application lets it in. So the fallback policy (every endpoint
+without authorization metadata) and the default one (a bare `RequireAuthorization()` or `[Authorize]`) demand, besides
+a session, the access gate (`AccessGateRequirement`): a person must hold at least one permission — inside the group
+or assigned, not suspended, with a role or with what `EveryMemberHolds` gives every member —, and a personal access
+token or an application token must carry one. A member with no role in a host without `EveryMemberHolds` gets 403.
+
+- `KdyfAuthorizationPolicies.SignedIn` is a session only: `auth/me` and `auth/policies` use it, so the application can
+  tell somebody they have no access. Use it for nothing that reads or changes data.
+- `auth.SignedInIsEnough()` makes a session enough for the fallback and default policies, as before 1.0. Only for a
+  host whose every endpoint names its permission.
+- `AllowAnonymous` still opens an endpoint to everyone (the SPA shell, health checks).
+
+The application's roles authorize people. Entra **app roles** in a token (`roles`) authorize only clients that are not
+people — an application with client credentials, or a personal access token, whose permissions are its role claims —,
+unless `AcceptRoleClaimsForUserPrincipals` is turned on, which skips the gate, the suspension and the revocation.
+
+### The first administrator
+
+The administration permission (`AdministrationPermissionCode`, `DataAdministration` unless the host names another; the
+policy given to `AdministeredBy` must demand it) has to be held by somebody before anybody can give roles. Once, with the
+tables created and the host started once (it fills the permission catalog), and with the person in the access gate:
+
+```sql
+INSERT INTO auth.Role (roleValue, name, description, createdAt) VALUES ('App.Admin', N'Administrators', NULL, SYSUTCDATETIME());
+INSERT INTO auth.RolePermission (roleValue, PermissionCode) VALUES ('App.Admin', 'DataAdministration');
+INSERT INTO auth.UserRole (objectId, roleValue) VALUES ('<the person''s Entra object id, lower case>', 'App.Admin');
+```
+
+From then on roles are given from the application, under its rules: four eyes, nothing beyond what the administrator
+holds, never the last administrator.
 
 ## Configuration
 
@@ -79,6 +130,9 @@ and the message names the key.
     "GroupId": "…",                           // Group, Migrating
     "ServicePrincipalId": "…",                // Migrating, AppAssignment
     "AccessAppRoleId": "…",                   // Migrating, AppAssignment
+    "MigrationSyncInterval": "00:10:00",      // Migrating: how often the assignments are brought in line with the group
+    "InviteRedirectUrl": "https://…",         // where an invited guest lands; required to invite
+    "SendInvitationMessage": true,            // false when the host sends its own invitation e-mail (AddSmtpInvitationNotifier)
     "ClientSecret": "…"                       // SECRET: user secrets, environment variables or a vault
   },
   "Authorization": { "CacheDuration": "00:02:00", "EmptyResultCacheDuration": "00:00:30" },
@@ -88,8 +142,14 @@ and the message names the key.
 
 Secrets never belong in `appsettings.json`. The Microsoft Graph application permissions depend on the gate:
 `User.Read.All`, plus `GroupMember.Read.All` (`GroupMember.ReadWrite.All` to administer) for a group, and
-`AppRoleAssignment.ReadWrite.All` for app assignments. That last one is powerful — it can assign any app role in the
-tenant — so give it to a separate app registration used only for Graph, with a certificate kept in a vault.
+`AppRoleAssignment.ReadWrite.All` for app assignments; `Migrating` needs both, since the group decides while the
+assignments are kept in line with it. Inviting guests needs `User.Invite.All`. `AppRoleAssignment.ReadWrite.All` is
+powerful — it can assign any app role in the tenant — so give it to a separate app registration used only for Graph,
+with its client secret kept in a vault and rotated.
+
+The gate is read when the host starts: changing `Gate` takes a restart. `Gate: "Migrating"` in a host that administers
+access also needs `builder.Services.AddKdyfAuthorizationGateMigration()` (kdyf.Authorization.Migrations), after the
+administration: the host refuses to start without it.
 
 ## People: suspension, last access, invitations
 
@@ -97,8 +157,11 @@ tenant — so give it to a separate app registration used only for Graph, with a
   nothing from their next request on, with a session, with a personal access token or as a simulation target; their
   roles and their membership stay for when they are reactivated. It passes the rules of removing their roles: four
   eyes, nothing beyond what the administrator holds, never the last administrator (a suspended one does not count).
-- **Last access**: `UserProfile.lastLoginAt`, written when a person's permissions are resolved, at most once per
-  `LastAccessInterval`. A failure to write it never denies anybody.
+- **Last access**: `UserProfile.lastLoginAt`, written when the person uses the application with their own session, at
+  most once per `LastAccessInterval` (and only when their permissions are resolved again, after the cache). Not when one
+  of their personal access tokens is used — a token has its own `lastUsedAt` —, not when somebody else's request looks
+  them up (the administration, the vault of a host, a simulation), and not from a background job. A failure to write it
+  never denies anybody.
 - **Invitations with roles**: `Roles` on the invitation, checked before anybody is invited and added to what the
   person already holds, never replacing it.
 - **A role in one go**: `PUT auth/roles/{role}` with `Permissions` (and `Version`) changes the name, the description
@@ -114,7 +177,8 @@ database, or suspends people, sets `"UserProfiles": true`, and `kdyf-auth apply`
 ## Schema versions
 
 The tables are versioned, the way Umbraco does it: `{Schema}.SchemaVersion` records each step applied, with its
-checksum, and the packages require a version (`AuthorizationSchema.RequiredVersion`). The state of a database is read
+checksum, and the packages require a version: `AuthorizationSchema.RequiredVersionFor(UserProfiles)`, 3 without the
+profiles and 4 with them. The state of a database is read
 from SQL Server's catalog, never deduced from a model:
 
 | State | What happens |
@@ -135,9 +199,13 @@ var app = builder.Build();
 if (await app.RunKdyfAuthCommandAsync(args)) return;   // <host> kdyf-auth plan | apply | verify | ...
 ```
 
+The tool needs the ASP.NET Core runtime. Without a host it does not know the host's `UserProfiles`: it works on the six
+tables (version 3) unless `--user-profiles` is passed, so on a version-4 database pass it, or `verify` reports the
+schema as ahead.
+
 ```bash
 dotnet tool install --global kdyf.Authorization.Tool
-kdyf-auth plan      # the connection string in KDYF_AUTH_CONNECTION_STRING, an identity with DDL
+kdyf-auth plan      # the connection string in KDYF_AUTH_CONNECTION_STRING (or --connection-string), an identity with DDL
 kdyf-auth apply --backup-confirmed --app-user my_app_user
 kdyf-auth verify
 ```
@@ -172,6 +240,20 @@ removes the renamed legacy schema when it is no longer wanted.
 When the host starts it checks the version: below the required one, or with a failed step, it does not start; without a
 history it only warns, until `RequireSchemaVersion` is set in the section.
 
+## Known limitations
+
+- **One instance's cache.** A change (a role taken away, a suspension) takes effect at once on the instance that made it,
+  and on the others within `CacheDuration`. With several replicas that is the window; replace `IPermissionCache` with a
+  distributed one if it is too long.
+- **Personal access tokens** can be created without an expiry date. A token is worth what its owner holds right now, and
+  an administrator can switch anybody's off at once; set an expiry for integrations that should not outlive a project.
+- **No retrying execution strategy.** The administration opens its own transactions (a change and its audit entry, the
+  administrators' lock), which EF Core refuses under a retrying strategy: do not configure `EnableRetryOnFailure` on the
+  store's `DbContext`. A transient failure fails that one change, and the administrator retries it.
+- **The import's audit copy** resumes from the highest id already in the target. While trying the application against
+  the target schema between two imports, entries it writes to the target's audit log can hide legacy entries written
+  meanwhile from the next import: try it read-only, or import again before writing.
+
 ## Build and test
 
 ```bash
@@ -190,12 +272,17 @@ a local feed (`C:\Nuget` by default) with a unique version suffix per run.
 ## Branches
 
 `develop` is where work lands, through pull requests; `master` is what has been released. A release is a tag on
-`master`, `v<version>` (for example `v1.0.0-preview.2`); every package of a release carries that version.
+`master`, `v<version>` (for example `v1.0.0`, or `v1.1.0-preview.1` for a preview); every package of a release carries
+that version, and each depends on the others with that exact version. What changed is in
+[CHANGELOG.md](https://github.com/kreadyf/kdyf.Authorization/blob/master/CHANGELOG.md).
+
+After a stable release: set `PackageValidationBaselineVersion` in `Directory.Build.props` to it (a 1.x that breaks the
+public API then fails the build), and raise `VersionPrefix` on `develop` to the next version.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) to report a vulnerability.
+See [SECURITY.md](https://github.com/kreadyf/kdyf.Authorization/blob/master/SECURITY.md) to report a vulnerability.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/kreadyf/kdyf.Authorization/blob/master/LICENSE)

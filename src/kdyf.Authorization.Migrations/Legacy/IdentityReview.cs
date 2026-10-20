@@ -8,13 +8,13 @@ namespace kdyf.Authorization.Migrations.Legacy
     /// <param name="LegacyUserId">The legacy user decided on.</param>
     /// <param name="ObjectId">The object id to use instead of the resolved one (an ambiguous or not found user). Optional.</param>
     /// <param name="Approve">Yes, no, or (null) leave as it is.</param>
-    public sealed record ReviewDecision(int LegacyUserId, string? ObjectId, bool? Approve);
+    internal sealed record ReviewDecision(int LegacyUserId, string? ObjectId, bool? Approve);
 
     /// <summary>
     /// The human review of the identities: a CSV a person reads, decides on (<c>Approved</c> yes/no, an <c>ObjectId</c>
     /// for the users the directory could not resolve) and hands back. It holds e-mails: never commit it.
     /// </summary>
-    public static class IdentityReview
+    internal static class IdentityReview
     {
         private static readonly string[] Columns =
         {
@@ -51,8 +51,9 @@ namespace kdyf.Authorization.Migrations.Legacy
             var decisions = new List<ReviewDecision>();
             foreach (var row in lines.Skip(1).Where(r => r.Any(c => !string.IsNullOrWhiteSpace(c))))
             {
-                if (!int.TryParse(row[idColumn], NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
-                    throw new FormatException($"'{row[idColumn]}' is not a legacy user id.");
+                var rawId = idColumn < row.Count ? row[idColumn] : "";
+                if (!int.TryParse(rawId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+                    throw new FormatException($"'{rawId}' is not a legacy user id (a row shorter than the header?).");
                 var approved = Cell(row, "Approved")?.ToLowerInvariant();
                 decisions.Add(new ReviewDecision(id, Cell(row, "ObjectId"), approved switch
                 {
@@ -136,8 +137,9 @@ namespace kdyf.Authorization.Migrations.Legacy
                 IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
                 _ => value.ToString() ?? "",
             };
-            // A leading =, +, - or @ would be a formula in a spreadsheet: quoted with an apostrophe it stays text.
-            if (text.Length > 0 && text[0] is '=' or '+' or '-' or '@')
+            // A leading =, +, - or @ (or a tab or carriage return before one) would be a formula in a spreadsheet: quoted
+            // with an apostrophe it stays text.
+            if (text.Length > 0 && text[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
                 text = "'" + text;
             return text.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0 ? "\"" + text.Replace("\"", "\"\"") + "\"" : text;
         }

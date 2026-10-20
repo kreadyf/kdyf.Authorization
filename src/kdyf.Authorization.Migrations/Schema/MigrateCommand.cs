@@ -68,6 +68,12 @@ namespace kdyf.Authorization.Migrations.Schema
                 }
             }
 
+            if (!SchemaMigrationOptions.IsSchemaName(targetSchema) || !SchemaMigrationOptions.IsSchemaName(legacySchema))
+            {
+                await output.WriteLineAsync($"'{(SchemaMigrationOptions.IsSchemaName(targetSchema) ? legacySchema : targetSchema)}' is not a valid schema name (letters, digits and '_', not starting with a digit).");
+                return SchemaCommandLine.Usage;
+            }
+
             var profileFlag = userProfiles ? new[] { "--user-profiles" } : Array.Empty<string>();
             var legacyFlag = new[] { "--legacy-schema", legacySchema };
             var importApprovalFlags = importApprovals.SelectMany(a => new[] { "--approve", a }).ToArray();

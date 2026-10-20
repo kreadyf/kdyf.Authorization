@@ -43,7 +43,7 @@ namespace kdyf.Authorization.AspNetCore.Endpoints
     }
 
     /// <summary>Plain JSON for data, ProblemDetails for everything else.</summary>
-    public sealed class DefaultKdyfAuthorizationResultWriter : IKdyfAuthorizationResultWriter
+    internal sealed class DefaultKdyfAuthorizationResultWriter : IKdyfAuthorizationResultWriter
     {
         /// <summary>The message of every failure, whatever happened.</summary>
         public const string FailureMessage = "The request could not be completed. Try again in a moment; if it keeps failing, quote the trace id.";

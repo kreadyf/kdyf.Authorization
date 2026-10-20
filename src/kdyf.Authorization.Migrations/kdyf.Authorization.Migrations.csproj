@@ -15,7 +15,6 @@
   <PropertyGroup>
     <Description>Migrations for kdyf.Authorization: the versioned schema on SQL Server (detect, plan, script, apply, adopt, verify) and, temporarily, moving the access gate from an Entra security group to Enterprise application assignments.</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -32,6 +31,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="kdyf.Authorization.EntraId.Test" />
     <InternalsVisibleTo Include="kdyf.Authorization.Migrations.Test" />
+    <InternalsVisibleTo Include="kdyf.Authorization.Administration.AspNetCore.Test" />
   </ItemGroup>
 
 </Project>

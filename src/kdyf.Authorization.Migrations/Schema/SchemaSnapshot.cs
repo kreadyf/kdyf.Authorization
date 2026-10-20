@@ -20,9 +20,11 @@ namespace kdyf.Authorization.Migrations.Schema
         IReadOnlyList<IndexShape> Indexes,
         IReadOnlyList<ForeignKeyShape> ForeignKeys)
     {
+        /// <summary>The column named <paramref name="name"/> (ignoring case), or <c>null</c>.</summary>
         public ColumnShape? Column(string name) =>
             Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
 
+        /// <summary>The primary key, or <c>null</c> when the table has none.</summary>
         public IndexShape? PrimaryKey => Indexes.FirstOrDefault(i => i.PrimaryKey);
     }
 
@@ -33,6 +35,7 @@ namespace kdyf.Authorization.Migrations.Schema
     /// </summary>
     public sealed class SchemaSnapshot
     {
+        /// <summary>A snapshot from parts already read; the migration reads its own from the catalog.</summary>
         public SchemaSnapshot(
             string schema, bool exists, IReadOnlyDictionary<string, TableShape> tables,
             IReadOnlyDictionary<string, IReadOnlySet<string>> grants, IReadOnlyDictionary<string, IReadOnlySet<string>> denies,
@@ -46,8 +49,10 @@ namespace kdyf.Authorization.Migrations.Schema
             RoleExists = roleExists;
         }
 
+        /// <summary>The name of the schema.</summary>
         public string Schema { get; }
 
+        /// <summary>Whether the schema exists in the database.</summary>
         public bool Exists { get; }
 
         /// <summary>The tables, by name (case-insensitive, as SQL Server resolves them).</summary>
@@ -62,6 +67,7 @@ namespace kdyf.Authorization.Migrations.Schema
         /// <summary>Whether the runtime role exists in the database.</summary>
         public bool RoleExists { get; }
 
+        /// <summary>The table named <paramref name="name"/> (ignoring case), or <c>null</c>.</summary>
         public TableShape? Table(string name) => Tables.TryGetValue(name, out var table) ? table : null;
 
         /// <summary>Reads the schema from the catalog, inside <paramref name="transaction"/> when there is one.</summary>

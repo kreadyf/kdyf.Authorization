@@ -20,6 +20,9 @@ namespace kdyf.Authorization.Authorization
         private readonly IUserIdentityResolver _identities;
         private readonly UserSimulationOptions? _simulation;
 
+        /// <param name="http">The current request.</param>
+        /// <param name="identities">The same resolver the authorization handler uses.</param>
+        /// <param name="simulation">Null when simulation is not installed: <see cref="IsSimulating"/> is then always false.</param>
         public ClaimsUserContext(
             IHttpContextAccessor http,
             IUserIdentityResolver identities,
@@ -35,12 +38,16 @@ namespace kdyf.Authorization.Authorization
                 ? _identities.Resolve(principal)
                 : null;
 
+        /// <inheritdoc />
         public bool IsAuthenticated => Identity is not null;
 
+        /// <inheritdoc />
         public string? Email => Identity?.Email;
 
+        /// <inheritdoc />
         public string? SubjectId => Identity?.SubjectId;
 
+        /// <inheritdoc />
         public bool IsSimulating => SimulatedBy is not null;
 
         /// <summary>Falls back to <see cref="Email"/>, so callers that only want "who did this" —

@@ -7,6 +7,7 @@ using kdyf.Authorization.EntraId.Migration;
 // Top-level namespace on purpose: the host finds it with the usings it already has.
 namespace Microsoft.Extensions.DependencyInjection
 {
+    /// <summary>Registration of the migration of the access gate to assignments to the Enterprise application.</summary>
     public static class GateMigrationServiceCollectionExtensions
     {
         /// <summary>

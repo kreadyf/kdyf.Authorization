@@ -8,11 +8,13 @@ namespace kdyf.Authorization.Administration.Models
         /// <summary>Their immutable Entra object id: the key every other call takes.</summary>
         public string ObjectId { get; set; } = string.Empty;
 
+        /// <summary>Name to show. May be null for a guest who has not redeemed the invitation yet.</summary>
         public string? DisplayName { get; set; }
 
         /// <summary>Real address. For a guest this is NOT their sign-in name.</summary>
         public string? Email { get; set; }
 
+        /// <summary>Sign-in name. For a guest it has the <c>#EXT#</c> shape, which is why it is not the e-mail.</summary>
         public string? UserPrincipalName { get; set; }
 
         /// <summary>External user invited through B2B.</summary>
@@ -39,7 +41,7 @@ namespace kdyf.Authorization.Administration.Models
         /// </summary>
         public bool IsSuspended { get; set; }
 
-        /// <summary>The last time they were seen (a sign-in or a token), to the minutes of the recording interval.</summary>
+        /// <summary>The last time they used the application with their own session (not a token, not somebody looking them up), to the minutes of the recording interval.</summary>
         public DateTime? LastLoginAt { get; set; }
 
         /// <summary>The caller themselves. The screen should not offer to change it: nobody changes their own access.</summary>
@@ -96,6 +98,7 @@ namespace kdyf.Authorization.Administration.Models
         /// <summary>The name on screen.</summary>
         public string Name { get; set; } = string.Empty;
 
+        /// <summary>Free text shown with the role; null when it has none.</summary>
         public string? Description { get; set; }
 
         /// <summary>What it grants, as configured (patterns included), ordered.</summary>
@@ -141,6 +144,7 @@ namespace kdyf.Authorization.Administration.Models
         /// <summary>The name on screen. Defaults to the value.</summary>
         public string? Name { get; set; }
 
+        /// <summary>Free text shown with the role, at most 500 characters. Blank is stored as none.</summary>
         public string? Description { get; set; }
 
         /// <summary>What it grants from the start. Optional: a role may be created empty and configured later.</summary>
@@ -153,8 +157,10 @@ namespace kdyf.Authorization.Administration.Models
     /// </summary>
     public class UpdateRoleRequest
     {
+        /// <summary>The name on screen. Required, at most 200 characters.</summary>
         public string Name { get; set; } = string.Empty;
 
+        /// <summary>Free text shown with the role, at most 500 characters. Blank clears it.</summary>
         public string? Description { get; set; }
 
         /// <summary>
@@ -228,13 +234,16 @@ namespace kdyf.Authorization.Administration.Models
     /// <summary>A role value and codes configured for it.</summary>
     public class ConfiguredRoleResponse
     {
+        /// <summary>The role's value.</summary>
         public string Value { get; set; } = string.Empty;
+        /// <summary>The codes in question, configured for that role.</summary>
         public List<string> Permissions { get; set; } = new();
     }
 
     /// <summary>Somebody holding roles outside the access group.</summary>
     public class FormerMemberResponse
     {
+        /// <summary>Their Entra object id.</summary>
         public string ObjectId { get; set; } = string.Empty;
 
         /// <summary>E-mail or sign-in name when Entra still knows them; null when it does not.</summary>
@@ -243,15 +252,20 @@ namespace kdyf.Authorization.Administration.Models
         /// <summary>False when Entra no longer knows them at all.</summary>
         public bool InDirectory { get; set; }
 
+        /// <summary>The role values they still hold (or, in <see cref="OrphanCleanupResponse"/>, that were removed).</summary>
         public List<string> Roles { get; set; } = new();
     }
 
     // ---------- Catalog ----------
 
+    /// <summary>A permission the application declares: what a role can be configured to grant.</summary>
     public class PermissionResponse
     {
+        /// <summary>The code roles grant and doors demand, e.g. <c>Portal.Admin</c>.</summary>
         public string PermissionCode { get; set; } = string.Empty;
+        /// <summary>The name given in the declaration, if any.</summary>
         public string? Name { get; set; }
+        /// <summary>The description given in the declaration, if any.</summary>
         public string? Description { get; set; }
 
         /// <summary>A wildcard (<c>*</c>, <c>area.*</c>): granted by roles, never demanded by a door.</summary>

@@ -16,6 +16,8 @@ namespace kdyf.Authorization.Authorization
     /// </remarks>
     public sealed class PermissionRequirement : IAuthorizationRequirement
     {
+        /// <param name="codes">The accepted codes: at least one, none empty.</param>
+        /// <exception cref="ArgumentException">No code given, or one is null or blank.</exception>
         public PermissionRequirement(params string[] codes)
         {
             if (codes is null || codes.Length == 0)
@@ -30,6 +32,7 @@ namespace kdyf.Authorization.Authorization
         /// <summary>Accepted codes. Having one is enough.</summary>
         public IReadOnlyList<string> Codes { get; }
 
+        /// <summary>For logs: <c>Permission:</c> and the codes joined by <c>|</c>.</summary>
         public override string ToString() => $"Permission:{string.Join("|", Codes)}";
     }
 }

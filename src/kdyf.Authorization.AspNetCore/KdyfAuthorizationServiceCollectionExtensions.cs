@@ -14,6 +14,7 @@ using kdyf.Authorization.Simulation;
 // Top-level namespace on purpose: the host finds it with the usings it already has.
 namespace Microsoft.Extensions.DependencyInjection
 {
+    /// <summary>Registers the host's security (authentication and authorization) from configuration.</summary>
     public static class KdyfAuthorizationServiceCollectionExtensions
     {
         /// <summary>The default scheme: forwards each request to the identity provider's or the PAT scheme, by its Authorization header.</summary>
@@ -132,10 +133,17 @@ namespace Microsoft.Extensions.DependencyInjection
             //
             // The FALLBACK covers every endpoint with no authorization metadata; the DEFAULT is what a bare
             // RequireAuthorization() uses. Both name BOTH schemes: without PAT here a token arrives anonymous
-            // and is rejected as if it did not exist.
+            // and is rejected as if it did not exist. And both demand the access gate, not only a session: a token
+            // proves an account of the tenant, not that the application lets it in (SignedInIsEnough opts out).
+            // The session endpoints (who am I, what may I do) need a session only, so the application can tell
+            // somebody they have no access: the SignedIn policy.
+            var gated = new AuthorizationPolicyBuilder(schemes).RequireAuthenticatedUser();
+            if (!builder.SessionIsEnough)
+                gated.AddRequirements(AccessGateRequirement.Instance);
             services.AddAuthorizationBuilder()
-                .SetFallbackPolicy(new AuthorizationPolicyBuilder(schemes).RequireAuthenticatedUser().Build())
-                .SetDefaultPolicy(new AuthorizationPolicyBuilder(schemes).RequireAuthenticatedUser().Build());
+                .SetFallbackPolicy(gated.Build())
+                .SetDefaultPolicy(gated.Build())
+                .AddPolicy(KdyfAuthorizationPolicies.SignedIn, new AuthorizationPolicyBuilder(schemes).RequireAuthenticatedUser().Build());
 
             services
                 .AddPermissionAuthorization(options =>

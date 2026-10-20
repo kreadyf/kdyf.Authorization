@@ -22,14 +22,20 @@ namespace kdyf.Authorization
         /// <summary>
         /// Claims from which the email is extracted, in order. Varies by issuer:
         /// Azure AD v1 uses 'upn'/'unique_name', v2 uses 'preferred_username', and 'email' only
-        /// appears if the user has the 'mail' field populated in the directory.
+        /// appears if the user has the 'mail' field populated in the directory. With the JWT handler's default inbound
+        /// mapping, 'upn' arrives as <see cref="ClaimTypes.Upn"/>.
         /// </summary>
+        /// <remarks>
+        /// Whether a request is a person's does not depend on finding an e-mail: a token issued for a user (delegated
+        /// scopes, or <c>idtyp = user</c>) is a person's either way, and goes through the store, never its role claims.
+        /// </remarks>
         public string[] EmailClaimTypes { get; set; } =
         {
             "email",
             ClaimTypes.Email,
             "preferred_username",
             "upn",
+            ClaimTypes.Upn,
             "unique_name"
         };
 

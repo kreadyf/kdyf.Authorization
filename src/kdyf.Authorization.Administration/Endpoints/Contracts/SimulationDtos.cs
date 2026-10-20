@@ -6,28 +6,28 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
     // changes only when this file does.
 
     /// <summary>Body of <c>POST {prefix}/start</c>: who to read the application as.</summary>
-    public class StartSimulationRequestDto
+    internal class StartSimulationRequestDto
     {
         /// <summary>Required in the body: without it the body cannot be read (400). Empty or malformed: 422 on <c>email</c>.</summary>
         public required string? Email { get; init; }
     }
 
     /// <summary>Body of <c>POST {prefix}/end</c>: whose simulation ends.</summary>
-    public class EndSimulationRequestDto
+    internal class EndSimulationRequestDto
     {
         /// <inheritdoc cref="StartSimulationRequestDto.Email"/>
         public required string? Email { get; init; }
     }
 
     /// <summary>One side of a session.</summary>
-    public class SimulationUserDto
+    internal class SimulationUserDto
     {
         public string? ObjectId { get; init; }
         public string? Email { get; init; }
     }
 
     /// <summary>Who the session is for — the real and the effective user, always apart.</summary>
-    public class SimulationContextDto
+    internal class SimulationContextDto
     {
         /// <summary>True while the session is served as somebody else.</summary>
         public bool IsSimulating { get; init; }
@@ -43,7 +43,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
     }
 
     /// <summary>A person with access, and whether the caller may simulate them — with why not.</summary>
-    public class SimulationCandidateDto
+    internal class SimulationCandidateDto
     {
         public required string ObjectId { get; init; }
 
@@ -60,7 +60,7 @@ namespace kdyf.Authorization.Administration.Endpoints.Contracts
     }
 
     /// <summary>A simulation just started, and how to keep it going.</summary>
-    public class SimulationStartedDto
+    internal class SimulationStartedDto
     {
         /// <summary>The session as it will be on the next request that carries the header.</summary>
         public required SimulationContextDto Context { get; init; }

@@ -26,6 +26,11 @@ namespace kdyf.Authorization.Administration
         private readonly IAccessDirectory? _directory;
         private readonly string _administrationCode;
 
+        /// <summary>Creates the service. Normally resolved from DI.</summary>
+        /// <remarks>
+        /// <c>options</c> supplies the administration permission code (<see cref="AuthPolicies.Admin"/> when absent).
+        /// <c>directory</c> is needed to create a token for another owner; without it that is refused as an unknown user.
+        /// </remarks>
         public PatAdminService(
             TContext context,
             IPermissionStore permissions,
@@ -40,6 +45,7 @@ namespace kdyf.Authorization.Administration
             _administrationCode = options?.AdministrationPermissionCode ?? AuthPolicies.Admin;
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<CreatePatResponse>> CreateAsync(
             CreatePatRequest request, AdminActor actor, CancellationToken ct)
         {
@@ -48,13 +54,16 @@ namespace kdyf.Authorization.Administration
 
             if (string.IsNullOrWhiteSpace(request.Name))
                 return Outcome.Error<CreatePatResponse>("name", "Name is required.");
+            if (request.Name.Trim().Length > 100)
+                return Outcome.Error<CreatePatResponse>("name", "At most 100 characters.");
 
             // Expiration is always stored and compared in UTC, regardless of the host or client time zone.
             var expiresAt = ToUtc(request.ExpiresAt);
             if (expiresAt.HasValue && expiresAt.Value <= DateTime.UtcNow)
                 return Outcome.Error<CreatePatResponse>("expiresAt", "Expiration must be in the future.");
 
-            var ownerId = string.IsNullOrWhiteSpace(request.OwnerObjectId) ? actor.Identity.SubjectId! : request.OwnerObjectId.Trim();
+            // Stored the way the roles are keyed: a token typed for an upper-case id must find its owner's roles and cache.
+            var ownerId = UserRole.Normalize(string.IsNullOrWhiteSpace(request.OwnerObjectId) ? actor.Identity.SubjectId! : request.OwnerObjectId);
             var forAnother = !actor.Is(ownerId);
             string ownerLabel;
 
@@ -136,6 +145,7 @@ namespace kdyf.Authorization.Administration
             });
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<List<PatResponse>>> ListAsync(AdminActor actor, CancellationToken ct)
         {
             // A read: allowed while simulating — the simulated person's own tokens are exactly what a
@@ -161,10 +171,21 @@ namespace kdyf.Authorization.Administration
                 .ToList());
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<bool>> SetActiveAsync(int patId, bool active, AdminActor actor, CancellationToken ct)
         {
             var (pat, error) = await LoadOwnedAsync(patId, actor, ct);
             if (error is not null) return error;
+
+            // Anybody's token may be switched OFF by an administrator: it only takes access away, and a leaked token has
+            // to be stopped at once. Switching one back ON hands out what its owner holds: as when creating it.
+            if (active && await BeyondTheActorAsync(pat!, actor, ct) is { } refused)
+                return refused;
+
+            // A token an administrator stopped (a leak, an owner under review) stays stopped until an administrator says so:
+            // otherwise its owner would switch it back on with the next click.
+            if (active && !pat!.IsActive && !IsAdministrator(actor) && await StoppedBySomebodyElseAsync(pat, ct))
+                return Outcome.Error<bool>("patId", "An administrator switched this token off: ask one to switch it back on.");
 
             pat!.IsActive = active;
             Audit(actor, active ? "pat.activated" : "pat.deactivated", pat, new { pat.TokenPrefix, owner = pat.OwnerLabel });
@@ -172,10 +193,15 @@ namespace kdyf.Authorization.Administration
             return Outcome.Ok(true);
         }
 
+        /// <inheritdoc />
         public async Task<ValidationResult<bool>> DeleteAsync(int patId, AdminActor actor, CancellationToken ct)
         {
             var (pat, error) = await LoadOwnedAsync(patId, actor, ct);
             if (error is not null) return error;
+
+            // Deleting somebody's token who holds more than the administrator would break their integrations from below.
+            if (await BeyondTheActorAsync(pat!, actor, ct) is { } refused)
+                return refused;
 
             _context.Remove(pat!);
             Audit(actor, "pat.deleted", pat!, new { pat!.TokenPrefix, owner = pat.OwnerLabel });
@@ -210,6 +236,34 @@ namespace kdyf.Authorization.Administration
                 return (null, Outcome.Error<bool>("patId", $"Token {patId} not found."));
 
             return (pat, null);
+        }
+
+        /// <summary>
+        /// For somebody else's token: refused when its owner holds permissions the administrator does not. Null when the
+        /// actor owns the token or covers what its owner holds.
+        /// </summary>
+        private async Task<ValidationResult<bool>?> BeyondTheActorAsync(PersonalAccessToken pat, AdminActor actor, CancellationToken ct)
+        {
+            if (actor.Is(pat.OwnerObjectId))
+                return null;
+
+            var owner = await _permissions.GetPermissionsAsync(new UserIdentity(pat.OwnerObjectId, null), ct);
+            return owner.All(code => PermissionWildcards.Covers(actor.Permissions, code))
+                ? null
+                : Outcome.Error<bool>("patId", $"'{pat.OwnerLabel}' holds permissions you do not: only an administrator who holds them can do this to their token.");
+        }
+
+        /// <summary>Whether the last time the token was switched off, it was by somebody other than its owner.</summary>
+        private async Task<bool> StoppedBySomebodyElseAsync(PersonalAccessToken pat, CancellationToken ct)
+        {
+            var id = pat.PersonalAccessTokenId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var last = await _context.Set<Persistence.AuditLogEntry>().AsNoTracking()
+                .Where(e => e.TargetType == "pat" && e.TargetId == id && e.Action == "pat.deactivated")
+                .OrderByDescending(e => e.AuditLogId)
+                .Select(e => e.ActorObjectId)
+                .FirstOrDefaultAsync(ct);
+
+            return last is not null && UserRole.Normalize(last) != UserRole.Normalize(pat.OwnerObjectId);
         }
 
         /// <summary>Whether the actor administers access — the configured code, or a pattern covering it.</summary>

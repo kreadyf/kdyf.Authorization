@@ -18,7 +18,7 @@ namespace kdyf.Authorization.EntraId
     /// read. Application permissions: <c>User.Read.All</c> and <c>GroupMember.Read.All</c>.
     /// </para>
     /// </remarks>
-    public sealed class GraphMembershipSource : IMembershipSource
+    internal sealed class GraphMembershipSource : IMembershipSource
     {
         private readonly GraphClient _graph;
         private readonly IOptions<EntraGraphOptions> _options;

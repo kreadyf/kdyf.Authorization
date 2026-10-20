@@ -2,6 +2,7 @@ using System.Text.Json;
 using kdyf.Authorization.Administration.Models;
 using kdyf.Authorization.Abstractions;
 using kdyf.Authorization.EntityFrameworkCore.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace kdyf.Authorization.Administration.Test;
 
@@ -34,6 +35,35 @@ public sealed class AccessAdminServiceTests
         CollectionAssert.AreEqual(new[] { "App.Editor" }, _f.RolesOf(People.Newcomer));
         Assert.IsTrue(result.Data.HasAccess);
         CollectionAssert.IsSubsetOf(new[] { "Default", "apitest.Edit" }, result.Data.Permissions, "the base access plus the role");
+        Assert.AreEqual("access.granted", _f.Audit().Single().Action);
+    }
+
+    /// <summary>
+    /// Somebody taken out of the group in Entra keeps their roles here. Bringing them back switches those roles on again,
+    /// so a lesser administrator cannot do it for a full one — not even by sending the roles back unchanged.
+    /// </summary>
+    [TestMethod]
+    public async Task Bringing_somebody_back_into_the_group_cannot_switch_on_roles_beyond_the_caller()
+    {
+        _f.Entra.LeaveGroup(People.Admin);
+
+        var result = await _f.Access().SetRolesAsync(People.Admin, Roles("App.Admin"), _f.Actor(People.Manager), default);
+
+        Assert.IsFalse(result.Validation.IsValid);
+        StringAssert.Contains(Errors(result), "App.Admin");
+        Assert.AreEqual(0, _f.Entra.Writes.Count, "not brought back into the group");
+        Assert.AreEqual(0, _f.Audit().Count);
+    }
+
+    [TestMethod]
+    public async Task Bringing_somebody_back_with_roles_the_caller_covers_still_works()
+    {
+        _f.Entra.LeaveGroup(People.Editor);
+
+        var result = await _f.Access().SetRolesAsync(People.Editor, Roles("App.Editor"), _f.Actor(People.Admin), default);
+
+        Assert.IsTrue(result.Validation.IsValid, Errors(result));
+        CollectionAssert.AreEqual(new[] { $"add {People.Editor}" }, _f.Entra.Writes);
         Assert.AreEqual("access.granted", _f.Audit().Single().Action);
     }
 
@@ -324,6 +354,47 @@ public sealed class AccessAdminServiceTests
     }
 
     // ── The lockout guard ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Two administrators removing each other at the same moment: while this change counts who else administers (Manager,
+    /// still a member), another administrator's change takes Manager's role away and is saved. Counting again under the
+    /// administrators' lock, on fresh data, refuses this one: otherwise both go through and nobody administers.
+    /// </summary>
+    [TestMethod]
+    public async Task A_change_saved_meanwhile_is_seen_before_the_last_administrator_is_removed()
+    {
+        _f.Entra.MeanwhileFor = People.Manager;
+        _f.Entra.Meanwhile = () => _f.Db.Set<UserRole>().Where(r => r.ObjectId == People.Manager).ExecuteDelete();
+
+        var result = await _f.Access().RevokeAsync(People.Admin, _f.Outsider(), default);
+
+        Assert.IsFalse(result.Validation.IsValid, "Manager no longer administers: Admin is the last one");
+        StringAssert.Contains(string.Join(" ", result.Validation.Fields.SelectMany(f => f.Value.Errors)), "nobody able to administer");
+        CollectionAssert.AreEqual(new[] { "App.Admin" }, _f.RolesOf(People.Admin), "nothing was removed");
+    }
+
+    /// <summary>
+    /// The same race over what the roles grant: while this change counts who else administers (Admin, through App.Admin),
+    /// another administrator's change takes the administration out of App.Admin and is saved. The count under the lock reads
+    /// the roles again: taking it out of App.UserManager too would leave nobody.
+    /// </summary>
+    [TestMethod]
+    public async Task A_role_change_saved_meanwhile_is_seen_before_the_last_administering_role_is_changed()
+    {
+        _f.Entra.MeanwhileFor = People.Admin;
+        _f.Entra.Meanwhile = () => _f.Db.Set<RolePermission>().Where(r => r.RoleValue == "App.Admin")
+            .ExecuteUpdate(s => s.SetProperty(r => r.PermissionCode, "apitest.Read"));
+
+        var result = await _f.Access().SetRolePermissionsAsync("App.UserManager",
+            new SetRolePermissionsRequest { Permissions = new() { "apitest.Read" } }, _f.Outsider(), default);
+
+        Assert.IsFalse(result.Validation.IsValid, "App.Admin no longer administers: App.UserManager is the last role that does");
+        StringAssert.Contains(string.Join(" ", result.Validation.Fields.SelectMany(f => f.Value.Errors)), "nobody able to administer");
+
+        // A later save in the same scope (the host's own, or the next call) must not carry the refused change.
+        _f.Db.SaveChanges();
+        CollectionAssert.Contains(_f.Grants("App.UserManager"), "apitest.Admin", "nothing was changed");
+    }
 
     /// <summary>
     /// The last enabled administrator in the group cannot be demoted. The actor here administers without being

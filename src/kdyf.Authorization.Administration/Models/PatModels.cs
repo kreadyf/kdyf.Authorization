@@ -9,6 +9,7 @@ namespace kdyf.Authorization.Administration.Models
     /// </remarks>
     public class CreatePatRequest
     {
+        /// <summary>A name to recognise the token by. Required.</summary>
         public string Name { get; set; } = string.Empty;
 
         /// <summary>Expiration. Null = never expires. Normalized to UTC on save.</summary>
@@ -28,16 +29,22 @@ namespace kdyf.Authorization.Administration.Models
     /// </summary>
     public class CreatePatResponse
     {
+        /// <summary>The token's id: what the other token calls take.</summary>
         public int PersonalAccessTokenId { get; set; }
+        /// <summary>The token's name.</summary>
         public string Name { get; set; } = string.Empty;
 
         /// <summary>Plaintext token. Show to the user only once; it is never exposed again.</summary>
         public string Token { get; set; } = string.Empty;
 
+        /// <summary>First characters of the token, to recognise it later without the secret.</summary>
         public string? TokenPrefix { get; set; }
+        /// <summary>Expiration in UTC. Null: never expires.</summary>
         public DateTime? ExpiresAt { get; set; }
 
+        /// <summary>Entra object id of the owner, whose access the token grants.</summary>
         public string OwnerObjectId { get; set; } = string.Empty;
+        /// <summary>The owner's e-mail (or label) at creation.</summary>
         public string OwnerEmail { get; set; } = string.Empty;
 
         /// <summary>What it can do right now, taken from the owner. Informative: it changes with them.</summary>
@@ -47,10 +54,14 @@ namespace kdyf.Authorization.Administration.Models
     /// <summary>A PAT in the listing (without the secret: only the prefix).</summary>
     public class PatResponse
     {
+        /// <summary>The token's id.</summary>
         public int PersonalAccessTokenId { get; set; }
+        /// <summary>The token's name.</summary>
         public string Name { get; set; } = string.Empty;
+        /// <summary>First characters of the token, to recognise it without the secret.</summary>
         public string? TokenPrefix { get; set; }
 
+        /// <summary>Entra object id of the owner, whose access the token grants.</summary>
         public string OwnerObjectId { get; set; } = string.Empty;
 
         /// <summary>The owner's e-mail when the token was created.</summary>
@@ -66,8 +77,11 @@ namespace kdyf.Authorization.Administration.Models
         /// </summary>
         public bool OwnerHasAccess { get; set; }
 
+        /// <summary>Expiration in UTC. Null: never expires.</summary>
         public DateTime? ExpiresAt { get; set; }
+        /// <summary>When the token was created, in UTC.</summary>
         public DateTime CreatedAt { get; set; }
+        /// <summary>When it was last used, or null if never. Recorded with a throttle, so approximate.</summary>
         public DateTime? LastUsedAt { get; set; }
 
         /// <summary>What it grants right now: the owner's effective permissions.</summary>

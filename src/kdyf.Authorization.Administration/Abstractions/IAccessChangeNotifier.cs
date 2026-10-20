@@ -25,7 +25,7 @@ namespace kdyf.Authorization.Administration.Abstractions
     /// </summary>
     /// <remarks>
     /// The default only logs. A host with a real-time channel (SignalR, a message bus) registers its own
-    /// before or after <c>AddAuthAdministration</c>; the library uses whatever is registered.
+    /// before or after <c>AddKdyfAuthorizationAdministration</c>; the library uses whatever is registered.
     /// A failure here never undoes nor fails the change: it is logged and the change stands.
     /// <para>
     /// Only changes made THROUGH this application are published. One made directly in the Entra portal
@@ -34,6 +34,7 @@ namespace kdyf.Authorization.Administration.Abstractions
     /// </remarks>
     public interface IAccessChangeNotifier
     {
+        /// <summary>Publishes a change that has already been applied. Called after the change is saved.</summary>
         Task NotifyAsync(AccessChange change, CancellationToken cancellationToken = default);
     }
 
@@ -42,8 +43,10 @@ namespace kdyf.Authorization.Administration.Abstractions
     {
         private readonly ILogger<LoggingAccessChangeNotifier> _logger;
 
+        /// <summary>Creates the notifier over the logger it writes to.</summary>
         public LoggingAccessChangeNotifier(ILogger<LoggingAccessChangeNotifier> logger) => _logger = logger;
 
+        /// <summary>Logs the change at Information level: who, by whom, roles added and removed.</summary>
         public Task NotifyAsync(AccessChange change, CancellationToken cancellationToken = default)
         {
             _logger.LogInformation(

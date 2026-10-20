@@ -60,6 +60,7 @@ internal sealed class TestHost : IAsyncDisposable
             options.AddPolicy(AccessPolicyNames.Administration, policy => policy.RequireClaim("admin", "true"));
             options.AddPolicy(AccessPolicyNames.PersonalAccessTokens, policy => policy.RequireAuthenticatedUser());
             options.AddPolicy(SimulationPolicy, policy => policy.RequireClaim("admin", "true"));
+            options.AddPolicy(kdyf.Authorization.AspNetCore.KdyfAuthorizationPolicies.SignedIn, policy => policy.RequireAuthenticatedUser());
         });
 
         builder.Services.AddSingleton(host.Access.Object);

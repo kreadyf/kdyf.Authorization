@@ -35,7 +35,7 @@ namespace kdyf.Authorization.Simulation
     /// served as nobody's but the caller's own, and refused before it reaches an endpoint.
     /// </para>
     /// </remarks>
-    public sealed class SimulationClaimsTransformation : IClaimsTransformation
+    internal sealed class SimulationClaimsTransformation : IClaimsTransformation
     {
         /// <summary>The decision for this request, computed once. See <see cref="SimulationDecision"/>.</summary>
         internal const string DecisionItemKey = "kdyf.authorization.simulation-decision";

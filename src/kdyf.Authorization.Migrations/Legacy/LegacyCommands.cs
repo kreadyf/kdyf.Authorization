@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 
 namespace kdyf.Authorization.Migrations.Legacy
 {
+    /// <summary>Registration of the legacy import in a host.</summary>
     public static class LegacyImportServiceCollectionExtensions
     {
         /// <summary>
@@ -75,6 +76,12 @@ namespace kdyf.Authorization.Migrations.Legacy
                         }
                         break;
                 }
+            }
+
+            if (!SchemaMigrationOptions.IsSchemaName(targetSchema) || !SchemaMigrationOptions.IsSchemaName(legacySchema))
+            {
+                await output.WriteLineAsync($"'{(SchemaMigrationOptions.IsSchemaName(targetSchema) ? legacySchema : targetSchema)}' is not a valid schema name (letters, digits and '_', not starting with a digit).");
+                return SchemaCommandLine.Usage;
             }
 
             try
@@ -259,6 +266,12 @@ namespace kdyf.Authorization.Migrations.Legacy
                         }
                         break;
                 }
+            }
+
+            if (!SchemaMigrationOptions.IsSchemaName(targetSchema) || !SchemaMigrationOptions.IsSchemaName(legacySchema))
+            {
+                await output.WriteLineAsync($"'{(SchemaMigrationOptions.IsSchemaName(targetSchema) ? legacySchema : targetSchema)}' is not a valid schema name (letters, digits and '_', not starting with a digit).");
+                return SchemaCommandLine.Usage;
             }
 
             try
