@@ -95,7 +95,7 @@ jobs:
           dotnet pack kdyf.Authorization.slnx --configuration Release --no-build --output artifacts/packages
           -p:Version=${{ steps.version.outputs.version }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages
           path: artifacts/packages
