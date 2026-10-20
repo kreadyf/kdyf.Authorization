@@ -23,6 +23,10 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: 'Microsoft.Extensions.*'
         update-types: ['version-update:semver-major']
+      # MSTest 4 removed Assert.ThrowsException(Async) and made DataTestMethod an error: moving to it means rewriting
+      # every test that expects an exception, a change of its own, not a weekly pull request.
+      - dependency-name: 'MSTest.*'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
