@@ -3,7 +3,7 @@
 Every package of a release carries the same version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [SemVer 2](https://semver.org/).
 
-## Unreleased
+## 1.1.0
 
 ### Added
 
