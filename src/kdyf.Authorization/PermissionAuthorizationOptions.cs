@@ -126,6 +126,23 @@ namespace kdyf.Authorization
         /// </remarks>
         public HashSet<string> MemberPermissionCodes { get; set; } = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Whether <c>AddAssignedRoles</c> adds the wildcard of every area to the declared permissions — <c>fabrikam.*</c>
+        /// for an area with at least two permissions — so that nobody has to write its class. See
+        /// <see cref="Authorization.AreaWildcards"/>.
+        /// </summary>
+        /// <remarks>
+        /// Off by default: a wildcard grants more than it looks like on a roles screen, so a host decides to have them.
+        /// </remarks>
+        public bool AreaWildcards { get; set; }
+
+        /// <summary>
+        /// The areas that get no wildcard when <see cref="AreaWildcards"/> is on: those holding a permission that must
+        /// never come through a wildcard. Each must be an area the host declares permissions in — checked at
+        /// registration, because a misspelt one would derive the very wildcard it meant to prevent.
+        /// </summary>
+        public HashSet<string> AreaWildcardExceptions { get; set; } = new(StringComparer.Ordinal);
+
         internal void Validate()
         {
             if (SubjectClaimTypes.Length == 0 && EmailClaimTypes.Length == 0)
@@ -134,6 +151,10 @@ namespace kdyf.Authorization
 
             if (CacheDuration < TimeSpan.Zero)
                 throw new InvalidOperationException("CacheDuration cannot be negative.");
+
+            if (!AreaWildcards && AreaWildcardExceptions.Count > 0)
+                throw new InvalidOperationException(
+                    "AreaWildcardExceptions are set but AreaWildcards is off: no area gets a wildcard, so there is nothing to except.");
         }
     }
 }

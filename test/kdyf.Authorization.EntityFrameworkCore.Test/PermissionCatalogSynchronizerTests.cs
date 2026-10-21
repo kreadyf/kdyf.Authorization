@@ -386,4 +386,49 @@ public class PermissionCatalogSynchronizerTests
         Assert.AreEqual(1, fixture.Rows().Count);
         Assert.AreEqual(0, fixture.Cache.InvalidateAllCalls);
     }
+
+    // =====================================================================
+    // From the declared permissions
+    // =====================================================================
+
+    /// <summary>
+    /// How UseEntityFrameworkStore runs it: the rows come from the catalog authorization reads, so a wildcard derived
+    /// for an area — which no class declares and no scan would find — gets its row, and a role can grant it.
+    /// </summary>
+    [TestMethod]
+    public async Task Writes_the_rows_of_the_declared_permissions_derived_wildcards_included()
+    {
+        Abstractions.PermissionDefinition[] classes = [TestPermissions.Controlling(), TestPermissions.Invoices(), TestPermissions.NoArea()];
+        var declared = new Roles.DeclaredPermissions([.. classes, .. Authorization.AreaWildcards.Derive(classes)]);
+        using var fixture = new CatalogFixture(declared: declared);
+
+        await fixture.SyncFromDeclaredPermissionsAsync();
+
+        CollectionAssert.AreEqual(
+            new[] { "Default", "demo.*", "demo.Controlling", "demo.Invoices" },
+            fixture.Rows().Select(r => r.PermissionCode).ToArray());
+        Assert.AreEqual("All demo", fixture.Row("demo.*")!.Name);
+    }
+
+    /// <summary>Composed without AddAssignedRoles there is no catalog to read: it scans, as it always did.</summary>
+    [TestMethod]
+    public async Task Without_declared_permissions_it_scans_the_assemblies()
+    {
+        using var fixture = new CatalogFixture();
+
+        await fixture.SyncFromDeclaredPermissionsAsync(typeof(object).Assembly);   // declares nothing
+
+        Assert.AreEqual(0, fixture.Rows().Count);
+    }
+
+    /// <summary>An explicit list still takes the place of everything else, as the tests here rely on.</summary>
+    [TestMethod]
+    public async Task An_explicit_list_takes_the_place_of_the_declared_permissions()
+    {
+        using var fixture = new CatalogFixture(declared: new Roles.DeclaredPermissions(TestPermissions.All()));
+
+        await fixture.SyncAsync(new[] { TestPermissions.Controlling() });
+
+        CollectionAssert.AreEqual(new[] { "demo.Controlling" }, fixture.Rows().Select(r => r.PermissionCode).ToArray());
+    }
 }

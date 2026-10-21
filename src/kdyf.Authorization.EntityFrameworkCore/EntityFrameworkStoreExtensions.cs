@@ -91,12 +91,14 @@ namespace kdyf.Authorization.EntityFrameworkCore
                     services.AddEfUserProfiles<AuthorizationDbContext>();
 
                 // Which permissions exist, persisted: auth.Permission is brought in line with the declared classes
-                // when the host starts (inserted, names updated, never deleted). RolePermission points at it.
+                // when the host starts (inserted, names updated, never deleted). RolePermission points at it. Written
+                // from the catalog authorization reads (DeclaredPermissions), so derived area wildcards get their rows too.
                 var declarations = context.DeclarationAssemblies;
                 services.AddPermissionCatalogSync<AuthorizationDbContext>(declarations[0], sync =>
                 {
                     foreach (var assembly in declarations.Skip(1))
                         sync.Assemblies.Add(assembly);
+                    sync.FromDeclaredPermissions = true;
                 });
 
                 // Before the catalog sync, which writes to the tables: the schema is the version these packages expect.

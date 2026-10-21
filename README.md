@@ -61,6 +61,7 @@ using Microsoft.EntityFrameworkCore;      // UseSqlServer
 builder.Services.AddKdyfAuthorization(builder.Configuration, "Authorization", auth => auth
     .Declarations(typeof(Program).Assembly)
     .EveryMemberHolds(new MyBaseAccess())     // optional: a permission of yours every member of the gate holds without a role
+    .AreaWildcards()                          // optional: a wildcard per area (global.*) without writing its class
     .UseEntityFrameworkStore((db, connectionString) => db.UseSqlServer(connectionString))
     .UseEntraId());
 
@@ -111,6 +112,22 @@ INSERT INTO auth.UserRole (objectId, roleValue) VALUES ('<the person''s Entra ob
 
 From then on roles are given from the application, under its rules: four eyes, nothing beyond what the administrator
 holds, never the last administrator.
+
+### Wildcards
+
+A role may grant `*` (everything) or `area.*` (everything in an area, at any depth) instead of each code. A wildcard is
+granted, never demanded: the effective permissions are expanded before anything compares them, so the doors keep naming
+exact codes. Only **declared** codes count — a wildcard row in the database that no declaration backs grants nothing.
+
+- `*`, and a nested wildcard such as `fabrikam.Invoicing.*`, are declared like any permission: a class whose code is
+  `*` (in namespace `fabrikam.Invoicing` for the nested one).
+- `auth.AreaWildcards()` declares `area.*` for every area — the first segment of a code — that has at least two
+  permissions, so a new area comes with its wildcard: add `aaa.Reports` and `aaa.Exports`, and `aaa.*` is declared, its
+  row written at startup, and a role may grant it. A wildcard declared by a class wins. Off by default: a wildcard grants
+  more than it looks like on a roles screen.
+- `auth.AreaWildcards(except: "global")` leaves out the areas that must not be granted as a whole. A name that is not an
+  area stops the host at registration (names are case-sensitive): a typo would otherwise derive the very wildcard it was
+  meant to prevent.
 
 ## Configuration
 

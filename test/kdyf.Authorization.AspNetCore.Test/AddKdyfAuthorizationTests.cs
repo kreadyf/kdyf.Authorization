@@ -782,6 +782,73 @@ public sealed class AddKdyfAuthorizationTests
         CollectionAssert.Contains(provider.GetRequiredService<kdyf.Authorization.Roles.DeclaredPermissions>().Codes.ToArray(), "authtest.Admin");
     }
 
+    // ── Area wildcards ───────────────────────────────────────────────────────
+
+    /// <summary>The catalog every reader shares: with AreaWildcards, the area's wildcard is declared without a class.</summary>
+    [TestMethod]
+    public void AreaWildcards_declares_the_wildcard_of_every_area()
+    {
+        using var provider = BuildWith(auth => auth.AreaWildcards());
+
+        var declared = provider.GetRequiredService<kdyf.Authorization.Roles.DeclaredPermissions>();
+        var wildcard = declared.Find("authtest.*");
+        Assert.IsInstanceOfType(wildcard, typeof(AreaWildcard));
+        Assert.AreEqual("All authtest", wildcard!.Name);
+        Assert.AreSame(declared, provider.GetRequiredService<IPermissionCatalog>(), "the catalog the role map expands against");
+    }
+
+    /// <summary>Off by default: a host decides to have wildcards, they grant more than they look like.</summary>
+    [TestMethod]
+    public void Without_AreaWildcards_an_area_has_no_wildcard_of_its_own()
+    {
+        using var provider = Build(With());
+
+        Assert.IsNull(provider.GetRequiredService<kdyf.Authorization.Roles.DeclaredPermissions>().Find("authtest.*"));
+    }
+
+    [TestMethod]
+    public void An_excepted_area_gets_no_wildcard()
+    {
+        using var provider = BuildWith(auth => auth.AreaWildcards(except: "authtest"));
+
+        Assert.IsNull(provider.GetRequiredService<kdyf.Authorization.Roles.DeclaredPermissions>().Find("authtest.*"));
+    }
+
+    /// <summary>Stopped at registration: a misspelt exception would derive the very wildcard it meant to prevent.</summary>
+    [TestMethod]
+    public void An_excepted_area_that_does_not_exist_stops_the_registration()
+    {
+        var error = Assert.ThrowsException<InvalidOperationException>(() => BuildWith(auth => auth.AreaWildcards(except: "AuthTest")));
+
+        StringAssert.Contains(error.Message, "AuthTest");
+    }
+
+    [TestMethod]
+    public void AreaWildcards_is_called_once()
+    {
+        var builder = new KdyfAuthorizationBuilder().AreaWildcards();
+
+        var error = Assert.ThrowsException<InvalidOperationException>(() => builder.AreaWildcards("authtest"));
+        StringAssert.Contains(error.Message, "once");
+    }
+
+    /// <summary>The rows are written from the catalog authorization reads, so a derived wildcard gets its row too.</summary>
+    [TestMethod]
+    public void The_catalog_sync_writes_from_the_declared_permissions()
+    {
+        using var provider = BuildWith(auth => auth.AreaWildcards());
+
+        Assert.IsTrue(provider.GetRequiredService<PermissionCatalogSyncOptions>().FromDeclaredPermissions);
+    }
+
+    private static ServiceProvider BuildWith(Func<KdyfAuthorizationBuilder, KdyfAuthorizationBuilder> decide)
+    {
+        var services = new ServiceCollection().AddLogging();
+        services.AddKdyfAuthorization(Configuration(With()), auth => Providers(decide(auth
+            .Declarations(typeof(AddKdyfAuthorizationTests).Assembly))));
+        return services.BuildServiceProvider();
+    }
+
     // ── Plumbing ─────────────────────────────────────────────────────────────
 
     /// <summary>The provider the tests plug in: SQL Server, never connected to.</summary>

@@ -3,6 +3,20 @@
 Every package of a release carries the same version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [SemVer 2](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **Area wildcards without a class**: `auth.AreaWildcards()` declares `area.*` for every area (the first segment of a
+  code) with at least two permissions, so a new area comes with its wildcard. Its row is written at startup and a role
+  may grant it like any declared wildcard; a wildcard declared by a class wins. `AreaWildcards(except: ...)` leaves
+  areas out, and an excepted name that is not an area stops the host at registration. Off by default. The derivation is
+  public (`AreaWildcards.Derive`, `AreaWildcard`) for hosts composing with `AddPermissionAuthorization`
+  (`PermissionAuthorizationOptions.AreaWildcards`, `AreaWildcardExceptions`).
+- `PermissionCatalogSyncOptions.FromDeclaredPermissions`: the catalog sync writes the rows from the registered
+  `DeclaredPermissions` — the catalog authorization reads — instead of scanning the assemblies. `UseEntityFrameworkStore`
+  turns it on, so the rows and the role checks come from one list.
+
 ## 1.0.0
 
 Changes since 1.0.0-preview.3.

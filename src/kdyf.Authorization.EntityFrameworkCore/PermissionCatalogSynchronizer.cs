@@ -1,5 +1,6 @@
 using System.Reflection;
 using kdyf.Authorization.Abstractions;
+using kdyf.Authorization.Roles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -25,6 +26,18 @@ namespace kdyf.Authorization.EntityFrameworkCore
         /// declaration in a test assembly belongs to every test in it.
         /// </remarks>
         public List<Declaration> Declarations { get; } = new();
+
+        /// <summary>
+        /// Read the declarations from the <see cref="DeclaredPermissions"/> registered by <c>AddAssignedRoles</c> —
+        /// the catalog authorization itself reads — instead of scanning <see cref="Assemblies"/>.
+        /// </summary>
+        /// <remarks>
+        /// What <c>UseEntityFrameworkStore</c> sets: the rows are then written from the very list the roles are checked
+        /// against, area wildcards included, so the two cannot drift. <see cref="Declarations"/>, when it has anything in
+        /// it, still takes the place of both. Without a registered <see cref="DeclaredPermissions"/> it falls back to
+        /// <see cref="Assemblies"/> and says so.
+        /// </remarks>
+        public bool FromDeclaredPermissions { get; set; }
 
         /// <summary>
         /// Log what WOULD change and write nothing.
@@ -95,7 +108,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         {
             var declared = _options.Declarations.Count > 0
                 ? _options.Declarations.ToList()
-                : _options.Assemblies.SelectMany(Declaration.DiscoverIn).ToList();
+                : FromCatalog() ?? _options.Assemblies.SelectMany(Declaration.DiscoverIn).ToList();
 
             if (declared.Count == 0)
             {
@@ -315,6 +328,26 @@ namespace kdyf.Authorization.EntityFrameworkCore
 
             Report($"these declared permissions are still missing after writing ({why}): "
                    + $"{string.Join(", ", missing)}. Every endpoint behind them denies in silence.");
+        }
+
+        /// <summary>The registered catalog's declarations under <see cref="PermissionCatalogSyncOptions.FromDeclaredPermissions"/>;
+        /// null to scan the assemblies instead.</summary>
+        private List<Declaration>? FromCatalog()
+        {
+            if (!_options.FromDeclaredPermissions)
+                return null;
+
+            var catalog = _services.GetService<DeclaredPermissions>();
+            if (catalog is null)
+            {
+                _logger.LogWarning(
+                    "Permission catalog sync: FromDeclaredPermissions is on but no DeclaredPermissions is registered (AddAssignedRoles); "
+                    + "scanning {Assemblies} instead.",
+                    string.Join(", ", _options.Assemblies.Select(a => a.GetName().Name)));
+                return null;
+            }
+
+            return catalog.Permissions.ToList();
         }
 
         /// <summary>Declarations that cannot be stored as they are, with the reason.</summary>

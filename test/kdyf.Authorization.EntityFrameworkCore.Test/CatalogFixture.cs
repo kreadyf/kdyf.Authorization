@@ -1,5 +1,6 @@
 using kdyf.Authorization.Abstractions;
 using kdyf.Authorization.EntityFrameworkCore;
+using kdyf.Authorization.Roles;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,7 +24,7 @@ internal sealed class CatalogFixture : IDisposable
     private readonly SqliteConnection _connection;
     private readonly ServiceProvider _services;
 
-    internal CatalogFixture(string environment = "Development")
+    internal CatalogFixture(string environment = "Development", DeclaredPermissions? declared = null)
     {
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
@@ -33,6 +34,8 @@ internal sealed class CatalogFixture : IDisposable
         var services = new ServiceCollection();
         services.AddDbContext<TestAuthContext>(o => o.UseSqlite(_connection));
         services.AddSingleton<IPermissionCache>(Cache);
+        if (declared is not null)
+            services.AddSingleton(declared);
         _services = services.BuildServiceProvider();
 
         Environment = new TestEnvironment { EnvironmentName = environment };
@@ -71,6 +74,19 @@ internal sealed class CatalogFixture : IDisposable
     {
         var options = new PermissionCatalogSyncOptions { ReportOnly = reportOnly };
         options.Declarations.AddRange(declarations);
+
+        return new PermissionCatalogSynchronizer<TestAuthContext>(
+                _services, options, Environment,
+                NullLogger<PermissionCatalogSynchronizer<TestAuthContext>>.Instance)
+            .StartAsync(CancellationToken.None);
+    }
+
+    /// <summary>Runs the synchronisation as UseEntityFrameworkStore sets it up: from the registered DeclaredPermissions,
+    /// with <paramref name="assemblies"/> to scan only when none is registered.</summary>
+    internal Task SyncFromDeclaredPermissionsAsync(params System.Reflection.Assembly[] assemblies)
+    {
+        var options = new PermissionCatalogSyncOptions { FromDeclaredPermissions = true };
+        options.Assemblies.AddRange(assemblies);
 
         return new PermissionCatalogSynchronizer<TestAuthContext>(
                 _services, options, Environment,

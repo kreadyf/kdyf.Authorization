@@ -125,7 +125,15 @@ namespace kdyf.Authorization
             ArgumentNullException.ThrowIfNull(declarations);
 
             // Discovered HERE, not lazily: two classes claiming one code stop the host at registration.
-            var declared = new DeclaredPermissions(DiscoverAcross(declarations, PermissionDefinition.DiscoverIn, p => p.Code, "permission code"));
+            var permissions = DiscoverAcross(declarations, PermissionDefinition.DiscoverIn, p => p.Code, "permission code");
+
+            // The area wildcards join the declarations here, once: everything that reads the catalog — the role map, the
+            // administration, the catalog sync, the legacy import — reads this DeclaredPermissions, so none of them can
+            // disagree about which wildcards exist.
+            if (_options.AreaWildcards)
+                permissions = [.. permissions, .. AreaWildcards.Derive(permissions, _options.AreaWildcardExceptions)];
+
+            var declared = new DeclaredPermissions(permissions);
 
             // What every member holds must be exact, declared codes: a typo would silently lock everybody out,
             // and a pattern would hand everything it covers to the whole group.
