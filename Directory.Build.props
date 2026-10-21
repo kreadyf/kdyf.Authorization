@@ -17,7 +17,7 @@
        internals, so a mismatched pair could break without any public API changing. pack-local.ps1 sets VersionSuffix;
        the release workflow sets Version from the tag (v1.0.0-preview.2 -> 1.0.0-preview.2). -->
   <PropertyGroup>
-    <VersionPrefix>1.0.0</VersionPrefix>
+    <VersionPrefix>1.1.0</VersionPrefix>
     <VersionSuffix Condition="'$(VersionSuffix)' == ''">dev</VersionSuffix>
     <Authors>kreadyf</Authors>
     <Company>kreadyf</Company>
