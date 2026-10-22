@@ -71,14 +71,13 @@ namespace kdyf.Authorization.Authorization
             if (permissions is null || permissions.Length == 0)
                 throw new ArgumentException($"The policy '{Name}' declared a rule with no permissions.", nameof(permissions));
 
-            // A pattern would be demanded literally: the effective set holds the codes a wildcard
-            // stands for, so gating on 'fabrikam.*' admits only whoever was granted that very pattern
-            // and nobody else. Always a mistake, and a silent one.
-            var pattern = permissions.FirstOrDefault(p => p.IsPattern);
-            if (pattern is not null)
+            // A legacy wildcard would be demanded literally and admit nobody. Gate on the node instead:
+            // 'fabrikam' admits whoever holds it or the root.
+            var invalid = permissions.FirstOrDefault(p => !PermissionHierarchy.IsValidCode(p.Code));
+            if (invalid is not null)
                 throw new ArgumentException(
-                    $"The policy '{Name}' cannot be gated on '{pattern.Code}': a wildcard stands for codes, "
-                    + "it is not one. Name the permissions it covers.", nameof(permissions));
+                    $"The policy '{Name}' cannot be gated on '{invalid.Code}': it is not a path of the permission tree. "
+                    + "To gate on an area, name its node ('fabrikam'), not a wildcard.", nameof(permissions));
 
             _rules.Add(permissions);
         }

@@ -112,8 +112,8 @@ public sealed class LegacyImportTests
 
         Assert.IsTrue(report.Applied, LegacyImporter.ToText(report));
         CollectionAssert.AreEqual(new[] { "1|super-admin", "2|order-reader", "3|empty-role" }, await RowsAsync(db, "SELECT RoleId, roleValue FROM authz.LegacyRoleMap ORDER BY RoleId"));
-        CollectionAssert.AreEqual(new[] { "order-reader|Orders.Read", "super-admin|*" },
-            await RowsAsync(db, "SELECT roleValue, PermissionCode FROM authz.RolePermission ORDER BY roleValue"), "Orders.Write is not declared: not copied");
+        CollectionAssert.AreEqual(new[] { "order-reader|Orders.Read", "super-admin|" },
+            await RowsAsync(db, "SELECT roleValue, PermissionCode FROM authz.RolePermission ORDER BY roleValue"), "Orders.Write is not declared: not copied; '*' is copied as the root");
         CollectionAssert.AreEqual(new[] { $"{Admin}|order-reader", $"{Admin}|super-admin", $"{Reader}|order-reader", $"{Nothing}|empty-role" },
             await RowsAsync(db, "SELECT objectId, roleValue FROM authz.UserRole ORDER BY objectId, roleValue"));
         CollectionAssert.AreEqual(new[] { $"{Admin}|1|True", $"{Reader}|2|False", $"{Nothing}|4|True" },

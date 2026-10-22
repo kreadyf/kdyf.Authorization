@@ -47,6 +47,41 @@ namespace kdyf.Authorization.Test
             Assert.IsFalse(context.HasSucceeded);
         }
 
+        /// <summary>A node held covers the codes below it, even from a store that does not expand.</summary>
+        [TestMethod]
+        public async Task Grants_when_the_user_holds_a_node_above_the_permission()
+        {
+            StoreReturns("Compliance");
+
+            Assert.IsTrue((await Evaluate(AuthenticatedUser(email: Email))).HasSucceeded);
+        }
+
+        [TestMethod]
+        public async Task Grants_when_the_user_holds_the_root()
+        {
+            StoreReturns(PermissionHierarchy.Root);
+
+            Assert.IsTrue((await Evaluate(AuthenticatedUser(email: Email))).HasSucceeded);
+        }
+
+        /// <summary>The cut is by segment: 'Comp' is not above 'Compliance.Cases', nor is a sibling area.</summary>
+        [TestMethod]
+        public async Task Denies_when_the_user_holds_only_a_sibling_or_a_prefix()
+        {
+            StoreReturns("Comp", "Order", "Compliance.Cases.Archive");
+
+            Assert.IsFalse((await Evaluate(AuthenticatedUser(email: Email))).HasSucceeded);
+        }
+
+        /// <summary>A token's role claim naming a node covers the codes below it, as a stored grant does.</summary>
+        [TestMethod]
+        public async Task Grants_through_a_role_claim_naming_a_node()
+        {
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Role, "Compliance") }, "PAT"));
+
+            Assert.IsTrue((await Evaluate(principal)).HasSucceeded);
+        }
+
         [TestMethod]
         public async Task Denies_when_the_user_does_not_exist_in_the_store()
         {

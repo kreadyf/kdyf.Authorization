@@ -60,7 +60,8 @@ namespace kdyf.Authorization.EntityFrameworkCore
             });
 
             // The permission catalog: one row per PermissionDefinition class, written by the
-            // PermissionCatalogSynchronizer at startup. Wildcards ('*', 'area.*') are rows like any other.
+            // PermissionCatalogSynchronizer at startup, with every ancestor and the root ('') as rows of their own,
+            // so a role can grant a node. Legacy wildcard rows ('*', 'area.*') are read as their nodes until rewritten.
             modelBuilder.Entity<Permission>(e =>
             {
                 e.ToTable("Permission", schema);

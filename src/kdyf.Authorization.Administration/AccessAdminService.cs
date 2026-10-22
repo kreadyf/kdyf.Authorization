@@ -628,7 +628,7 @@ namespace kdyf.Authorization.Administration
             await using (var transaction = await _context.Database.BeginTransactionAsync(ct))
             {
                 var rows = _context.Set<RolePermissionRow>();
-                rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue && removed.Contains(r.PermissionCode)).ToListAsync(ct));
+                rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue && StoredSpellings(removed).Contains(r.PermissionCode)).ToListAsync(ct));
                 rows.AddRange(added.Select(code => new RolePermissionRow { RoleValue = roleValue, PermissionCode = code }));
 
                 // Taking a permission away from a role can take the administration from everybody holding it: counted
@@ -743,7 +743,7 @@ namespace kdyf.Authorization.Administration
                 role.Description = description;
 
                 var rows = _context.Set<RolePermissionRow>();
-                rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue && removed.Contains(r.PermissionCode)).ToListAsync(ct));
+                rows.RemoveRange(await rows.Where(r => r.RoleValue == roleValue && StoredSpellings(removed).Contains(r.PermissionCode)).ToListAsync(ct));
                 rows.AddRange(added.Select(code => new RolePermissionRow { RoleValue = roleValue, PermissionCode = code }));
 
                 if (removed.Count > 0 && await RecheckAdministratorsAsync(null, ct, (roleValue, plan.Changed!.GrantsOf(roleValue))) is { } stillOne)
@@ -885,8 +885,10 @@ namespace kdyf.Authorization.Administration
             return new RoleConsistencyResponse
             {
                 UnconfiguredRoles = map.Roles.Where(value => map.EffectivePermissions(new[] { value }).Count == 0).ToList(),
+                // Legacy wildcard rows are not orphans: roles may still grant them (read as their nodes), and the
+                // post-deployment script rewrites grants and rows together. Deleting them here would break the key.
                 UndeclaredCatalogPermissions = catalog
-                    .Where(code => _declared.Find(code) is null)
+                    .Where(code => _declared.Find(code) is null && !PermissionHierarchy.IsLegacyWildcard(code))
                     .OrderBy(code => code, StringComparer.Ordinal)
                     .ToList(),
                 UnknownPermissions = map.Undeclared
@@ -910,7 +912,7 @@ namespace kdyf.Authorization.Administration
                 PermissionCode = p.Code,
                 Name = p.Name,
                 Description = p.Description,
-                IsPattern = p.IsPattern,
+                IsPattern = false,
                 HeldByEveryMember = _roles.MemberCodes.Contains(p.Code)
             }).ToList()));
 
@@ -942,7 +944,7 @@ namespace kdyf.Authorization.Administration
                 return $"These permissions do not exist: {string.Join(", ", undeclared)}. See GET /permissions.";
 
             var beyond = addedList.Concat(removed.Where(code => _declared.Find(code) is not null))
-                .Where(code => !PermissionWildcards.Covers(actor.Permissions, code))
+                .Where(code => !PermissionHierarchy.Covers(actor.Permissions, code))
                 .ToList();
 
             return beyond.Count == 0 ? null : $"You do not hold {string.Join(", ", beyond)}: you cannot grant or remove it.";
@@ -972,7 +974,7 @@ namespace kdyf.Authorization.Administration
 
         /// <summary>Whether a member holding these roles administers access.</summary>
         private bool Administers(RolePermissionMap map, IEnumerable<string> roleValues) =>
-            PermissionWildcards.Covers(map.ForMember(roleValues), _administrationCode);
+            PermissionHierarchy.Covers(map.ForMember(roleValues), _administrationCode);
 
         /// <summary>
         /// Null when, under <paramref name="map"/>, somebody other than <paramref name="except"/> still administers:
@@ -1274,10 +1276,20 @@ namespace kdyf.Authorization.Administration
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)))[..16];
         }
 
+        /// <summary>The requested codes, trimmed and once each. The empty code is the root and is kept; a blank one is not.</summary>
         private static List<string> Codes(IEnumerable<string>? codes) =>
             (codes ?? Array.Empty<string>())
-                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .Where(code => code is not null && (code.Length == 0 || !string.IsNullOrWhiteSpace(code)))
                 .Select(code => code.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+        /// <summary>
+        /// The rows that store these paths: each path and its legacy spelling (<c>*</c>, <c>prefix.*</c>), so that removing
+        /// a node from a role also removes a wildcard row not yet rewritten — the map reads both as the same node.
+        /// </summary>
+        private static List<string> StoredSpellings(IEnumerable<string> paths) =>
+            paths.SelectMany(path => new[] { path, PermissionHierarchy.LegacySpellingOf(path) })
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
 

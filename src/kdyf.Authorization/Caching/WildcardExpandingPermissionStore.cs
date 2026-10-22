@@ -1,56 +1,25 @@
 using kdyf.Authorization.Abstractions;
-using kdyf.Authorization.Authorization;
 
 namespace kdyf.Authorization.Caching
 {
     /// <summary>
-    /// Resolves the patterns a role may grant (<c>*</c>, <c>prefix.*</c>) into real permission codes,
-    /// so that everything downstream keeps comparing exact strings.
+    /// The name this store had before the permission hierarchy. It is <see cref="HierarchyExpandingPermissionStore"/>,
+    /// which still reads the legacy <c>*</c> and <c>prefix.*</c> as the root and <c>prefix</c>.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Sits between the consumer's store and the cache — <c>Caching(WildcardExpanding(Store))</c> —
-    /// so an expanded set is cached like any other and the catalog is not re-read on every request.
-    /// </para>
-    /// <para>
-    /// <b>It throws rather than degrades.</b> If the catalog cannot be read, the alternative would be
-    /// to hand back the unexpanded set: an administrator holding only <c>*</c> would silently shrink
-    /// to almost nothing, that reduced set would be CACHED for the full duration (it is not empty, so
-    /// the short empty-result window does not apply), and the administration service would then count
-    /// zero administrators and refuse every change. Throwing is what <see cref="IPermissionStore"/>
-    /// prescribes for a real failure, and the handler turns it into a clean denial.
-    /// </para>
-    /// </remarks>
+    [Obsolete("Use HierarchyExpandingPermissionStore: wildcards are replaced by the permission hierarchy.")]
     public sealed class WildcardExpandingPermissionStore : IPermissionStore
     {
-        private readonly IPermissionStore _inner;
-        private readonly IPermissionCatalog _catalog;
+        private readonly HierarchyExpandingPermissionStore _store;
 
-        /// <param name="inner">The store whose grants may contain patterns.</param>
-        /// <param name="catalog">The declared codes the patterns expand against.</param>
+        /// <param name="inner">The store whose grants may be nodes (or legacy wildcards).</param>
+        /// <param name="catalog">The codes the nodes expand to.</param>
         public WildcardExpandingPermissionStore(IPermissionStore inner, IPermissionCatalog catalog)
         {
-            _inner = inner;
-            _catalog = catalog;
+            _store = new HierarchyExpandingPermissionStore(inner, catalog);
         }
 
-        /// <summary>
-        /// The inner store's grants plus the declared codes their patterns cover (the patterns stay in the set, see
-        /// <see cref="PermissionWildcards.Expand"/>). The catalog is read only when a pattern is present; a catalog failure throws.
-        /// </summary>
-        public async Task<IReadOnlySet<string>> GetPermissionsAsync(
-            UserIdentity user, CancellationToken cancellationToken = default)
-        {
-            var granted = await _inner.GetPermissionsAsync(user, cancellationToken);
-
-            // The overwhelming majority of users hold no pattern at all. Checking first means they
-            // never pay for the catalog read.
-            if (!PermissionWildcards.ContainsPattern(granted))
-                return granted;
-
-            var catalog = await _catalog.GetAllAsync(cancellationToken);
-
-            return PermissionWildcards.Expand(granted, catalog);
-        }
+        /// <inheritdoc cref="HierarchyExpandingPermissionStore.GetPermissionsAsync"/>
+        public Task<IReadOnlySet<string>> GetPermissionsAsync(UserIdentity user, CancellationToken cancellationToken = default) =>
+            _store.GetPermissionsAsync(user, cancellationToken);
     }
 }

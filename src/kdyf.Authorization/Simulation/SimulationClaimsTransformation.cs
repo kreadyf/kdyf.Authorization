@@ -119,7 +119,7 @@ namespace kdyf.Authorization.Simulation
             var permissions = services.GetRequiredService<IPrincipalPermissionResolver>();
             var effective = await permissions.ResolveAsync(principal, context.RequestAborted);
 
-            if (!effective.Contains(_options.RequiredPermission))
+            if (!PermissionHierarchy.Covers(effective, _options.RequiredPermission))
             {
                 _logger.LogWarning(
                     "Simulation refused for {Caller}: {Permission} is required.",

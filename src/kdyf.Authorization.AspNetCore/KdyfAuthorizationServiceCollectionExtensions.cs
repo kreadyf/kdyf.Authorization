@@ -150,8 +150,6 @@ namespace Microsoft.Extensions.DependencyInjection
                 {
                     options.AuthenticationSchemes = schemes;
                     options.MemberPermissionCodes = new HashSet<string>(builder.MemberPermissionCodes, StringComparer.Ordinal);
-                    options.AreaWildcards = builder.DeriveAreaWildcards;
-                    options.AreaWildcardExceptions = new HashSet<string>(builder.AreaWildcardExceptions, StringComparer.Ordinal);
                     options.CacheDuration = now.Authorization.CacheDuration;
                     options.EmptyResultCacheDuration = now.Authorization.EmptyResultCacheDuration;
 

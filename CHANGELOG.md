@@ -3,6 +3,46 @@
 Every package of a release carries the same version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [SemVer 2](https://semver.org/).
 
+## 1.2.0
+
+### Changed — read before upgrading
+
+- **The permission tree replaces wildcards.** A granted code covers itself and every code below it, segment by segment:
+  `fabrikam` covers `fabrikam.Controlling` and `fabrikam.Invoicing.Invoices`, not `fabrikamArchive.X`; the root `""`
+  covers everything. Grant `""` where a role granted `*`, and `area` where it granted `area.*`.
+- **Every ancestor and the root are in the catalog** without a class (`PermissionNode`), at every level and whatever the
+  number of permissions below them, and the startup sync writes their rows. An implicit node never overwrites the name or
+  description of its row; a class with an empty code in an area's namespace gives the node its name.
+- **A role that grants a parent of other codes now holds them.** Check the stored grants before upgrading (README,
+  "Upgrading from wildcards").
+- **Wildcards are refused as input**: a declaration with `*` is left out of the catalog (warned at startup), an
+  administration request granting `*` is refused, a policy cannot demand one.
+- The handler, the policy report and the simulation check compare with `PermissionHierarchy.Covers`, also for role claims
+  (personal access tokens, application tokens).
+
+### Added
+
+- `PermissionHierarchy`: `Root`, `IsValidCode`, `Covering`, `Ancestors`, `Covers`, `Expand`, and the reading of the
+  legacy spellings (`TryNormalizeStoredGrant`, `NormalizeStoredGrants`, `LegacySpellingOf`).
+- `PermissionNode` and `DeclaredPermissions.IsExplicit` / `IgnoredWildcards`.
+- `HierarchyExpandingPermissionStore` and `PermissionAuthorizationBuilder.ExpandHierarchy()`.
+- `docs/auth-migrate-permission-hierarchy.sql`: the post-deployment rewrite of `*` / `area.*` rows (dry run, one
+  transaction, verified, optional `CHECK` constraints).
+- Package validation against the published 1.1.0 API.
+
+### Deprecated
+
+- `PermissionWildcards`, `AreaWildcards`, `AreaWildcard`, `WildcardExpandingPermissionStore`, `ExpandWildcards()`,
+  `KdyfAuthorizationBuilder.AreaWildcards()`, `PermissionAuthorizationOptions.AreaWildcards` / `AreaWildcardExceptions`
+  and `PermissionDefinition.IsPattern`: they answer with the hierarchy or do nothing, and go in 2.0.
+  `PermissionResponse.IsPattern` is always false.
+
+### Transition
+
+- Rows written before 1.2.0 are read as their nodes (`*` as `""`, `area.*` as `area`); a malformed one (`.*`, `a..*`,
+  `*.*`) grants nothing. Removing a node from a role also removes its legacy row. The orphan cleanup leaves legacy
+  wildcard rows to the migration script, and the legacy import copies `*` / `area.*` as their nodes.
+
 ## 1.1.0
 
 ### Added

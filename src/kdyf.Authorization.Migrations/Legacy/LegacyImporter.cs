@@ -121,7 +121,10 @@ namespace kdyf.Authorization.Migrations.Legacy
                 issues.Add(new(IssueSeverity.Blocker, "identities", null, problem));
 
             var mapped = await MappedRolesAsync(connection, target, cancellationToken);
-            var declared = request.Declared.Select(p => p.Code).ToHashSet(StringComparer.Ordinal);
+            // The tree, as the host's catalog has it: the ancestors and the root are grantable, and a legacy '*' is copied
+            // as the root. Completing a list that is a tree already changes nothing.
+            var tree = PermissionNode.Complete(request.Declared, out _);
+            var declared = tree.Select(p => p.Code).ToHashSet(StringComparer.Ordinal);
             var plan = LegacyImportPlan.Build(report.Data, report, identities, declared, mapped, request.Settings, DateTime.UtcNow);
             issues.AddRange(plan.Issues);
 
@@ -142,7 +145,7 @@ namespace kdyf.Authorization.Migrations.Legacy
             await using (var transaction = (SqlTransaction)await connection.BeginTransactionAsync(cancellationToken))
             {
                 await LoadDesiredAsync(connection, transaction, plan, cancellationToken);
-                await ReconcileAsync(connection, transaction, target, request.Declared, changes, cancellationToken);
+                await ReconcileAsync(connection, transaction, target, tree, changes, cancellationToken);
 
                 foreach (var step in request.HostSteps)
                     await step.ApplyAsync(new LegacyImportContext
@@ -295,17 +298,20 @@ namespace kdyf.Authorization.Migrations.Legacy
             Dictionary<string, (int, int, int)> changes, CancellationToken cancellationToken)
         {
             // 1. The catalog: what the host declares, as its synchronizer would write it (inserted, names updated, never deleted).
+            // An implicit node of the tree is only inserted: it owns no name, so a label already on its row stays.
+            // DATALENGTH: '' and ' ' compare equal in SQL Server, and the root must never be taken for a blank row.
             var catalogInserted = 0;
             var catalogUpdated = 0;
             foreach (var permission in declared)
             {
                 var affected = await ScalarAsync(connection, transaction, $"""
-                    IF NOT EXISTS (SELECT 1 FROM [{s}].[Permission] WHERE PermissionCode = @code)
+                    IF NOT EXISTS (SELECT 1 FROM [{s}].[Permission] WHERE PermissionCode = @code AND DATALENGTH(PermissionCode) = DATALENGTH(CAST(@code AS VARCHAR(50))))
                     BEGIN INSERT INTO [{s}].[Permission] (PermissionCode, name, description) VALUES (@code, @name, @description); SELECT 1; END
-                    ELSE IF EXISTS (SELECT 1 FROM [{s}].[Permission] WHERE PermissionCode = @code AND (ISNULL(name, N'') <> ISNULL(@name, N'') OR ISNULL(description, N'') <> ISNULL(@description, N'')))
-                    BEGIN UPDATE [{s}].[Permission] SET name = @name, description = @description WHERE PermissionCode = @code; SELECT 2; END
+                    ELSE IF @explicit = 1 AND EXISTS (SELECT 1 FROM [{s}].[Permission] WHERE PermissionCode = @code AND DATALENGTH(PermissionCode) = DATALENGTH(CAST(@code AS VARCHAR(50))) AND (ISNULL(name, N'') <> ISNULL(@name, N'') OR ISNULL(description, N'') <> ISNULL(@description, N'')))
+                    BEGIN UPDATE [{s}].[Permission] SET name = @name, description = @description WHERE PermissionCode = @code AND DATALENGTH(PermissionCode) = DATALENGTH(CAST(@code AS VARCHAR(50))); SELECT 2; END
                     ELSE SELECT 0;
-                    """, cancellationToken, ("@code", permission.Code), ("@name", permission.Name), ("@description", permission.Description));
+                    """, cancellationToken, ("@code", permission.Code), ("@name", permission.Name), ("@description", permission.Description),
+                    ("@explicit", permission is PermissionNode ? 0 : 1));
                 if (affected == 1) catalogInserted++;
                 if (affected == 2) catalogUpdated++;
             }

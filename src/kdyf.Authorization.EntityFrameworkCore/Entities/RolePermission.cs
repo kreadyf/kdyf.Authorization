@@ -8,7 +8,7 @@ namespace kdyf.Authorization.EntityFrameworkCore.Entities
         /// <summary>The role's value (<see cref="Role.RoleValue"/>), e.g. <c>Portal.Editor</c>.</summary>
         public string RoleValue { get; set; } = string.Empty;
 
-        /// <summary>A permission declared in code (<c>PermissionDefinition</c>), or a declared wildcard (<c>*</c>).</summary>
+        /// <summary>A node of the declared permission tree: a code, an ancestor of codes, or the root (<c>""</c>). Grants everything below it.</summary>
         public string PermissionCode { get; set; } = string.Empty;
     }
 }

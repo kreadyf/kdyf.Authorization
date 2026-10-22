@@ -1,5 +1,6 @@
 using System.Reflection;
 using kdyf.Authorization.Abstractions;
+using kdyf.Authorization.Authorization;
 using kdyf.Authorization.Roles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,7 +34,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         /// </summary>
         /// <remarks>
         /// What <c>UseEntityFrameworkStore</c> sets: the rows are then written from the very list the roles are checked
-        /// against, area wildcards included, so the two cannot drift. <see cref="Declarations"/>, when it has anything in
+        /// against, its implicit nodes included, so the two cannot drift. <see cref="Declarations"/>, when it has anything in
         /// it, still takes the place of both. Without a registered <see cref="DeclaredPermissions"/> it falls back to
         /// <see cref="Assemblies"/> and says so.
         /// </remarks>
@@ -51,8 +52,9 @@ namespace kdyf.Authorization.EntityFrameworkCore
     }
 
     /// <summary>
-    /// Brings <c>auth.Permission</c> in line with the permissions declared in code: inserts the ones
-    /// that are missing and updates a name or description that has changed.
+    /// Brings <c>auth.Permission</c> in line with the permission tree declared in code: inserts the
+    /// nodes that are missing — declared codes, their ancestors and the root — and updates a name or
+    /// description a class declares that has changed.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -106,11 +108,11 @@ namespace kdyf.Authorization.EntityFrameworkCore
         /// </remarks>
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            var declared = _options.Declarations.Count > 0
+            var source = _options.Declarations.Count > 0
                 ? _options.Declarations.ToList()
                 : FromCatalog() ?? _options.Assemblies.SelectMany(Declaration.DiscoverIn).ToList();
 
-            if (declared.Count == 0)
+            if (source.Count == 0)
             {
                 _logger.LogWarning(
                     "Permission catalog sync: no permission is declared in {Assemblies}. Nothing to do.",
@@ -118,13 +120,21 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 return;
             }
 
-            var invalid = Validate(declared);
+            // Legacy wildcard classes stand for nothing any more (a node covers its area): left out, and said so.
+            var wildcards = source.Where(p => PermissionHierarchy.IsLegacyWildcard(p.Code)).Select(p => p.Code).ToList();
+            if (wildcards.Count > 0)
+                _logger.LogWarning(
+                    "Permission catalog sync: these declarations are wildcards, which the permission tree has replaced; "
+                    + "no row is written for them: {Codes}.", string.Join(", ", wildcards));
+
+            var invalid = Validate(source.Where(p => !PermissionHierarchy.IsLegacyWildcard(p.Code)));
             if (invalid.Count > 0)
                 Report(string.Join(" ", invalid.Values));
 
             // DiscoverIn checks one assembly; two sources can still declare one code. Adding the
             // same key twice would throw from EF before any of the handling below.
-            var duplicated = declared
+            var duplicated = source
+                .Where(p => !PermissionHierarchy.IsLegacyWildcard(p.Code))
                 .GroupBy(p => p.Code, StringComparer.OrdinalIgnoreCase)
                 .Where(g => g.Count() > 1)
                 .Select(g => g.Key)
@@ -132,10 +142,23 @@ namespace kdyf.Authorization.EntityFrameworkCore
             if (duplicated.Count > 0)
                 Report("these permission codes are declared more than once: " + string.Join(", ", duplicated) + ".");
 
-            var usable = declared
-                .Where(p => !invalid.ContainsKey(p))
+            var valid = source
+                .Where(p => !PermissionHierarchy.IsLegacyWildcard(p.Code) && !invalid.ContainsKey(p))
                 .DistinctBy(p => p.Code, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            // The tree: every ancestor and the root get a row, so that a role can grant them. A catalog read from
+            // DeclaredPermissions is complete already; completing it again changes nothing.
+            List<Declaration> usable;
+            try
+            {
+                usable = PermissionNode.Complete(valid, out _).ToList();
+            }
+            catch (InvalidOperationException ex)
+            {
+                Report(ex.Message);
+                usable = valid;
+            }
 
             using var scope = _services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<TContext>();
@@ -180,6 +203,11 @@ namespace kdyf.Authorization.EntityFrameworkCore
                     continue;
                 }
 
+                // An implicit node owns no metadata: whatever label its row has — written by hand, or by a class that
+                // declared it once — stays.
+                if (permission is PermissionNode)
+                    continue;
+
                 if (string.Equals(row.Name, permission.Name, StringComparison.Ordinal)
                     && string.Equals(row.Description, permission.Description, StringComparison.Ordinal))
                     continue;
@@ -204,16 +232,25 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 .OrderBy(c => c, StringComparer.Ordinal)
                 .ToList();
 
+            var legacy = undeclared.Where(PermissionHierarchy.IsLegacyWildcard).ToList();
+            undeclared = undeclared.Except(legacy).ToList();
+
             if (undeclared.Count > 0)
                 _logger.LogWarning(
-                    "Permission catalog sync: {Count} row(s) of auth.Permission are declared by no class and were left "
-                    + "untouched — a role may still be granting them: {Codes}.",
+                    "Permission catalog sync: {Count} row(s) of auth.Permission are outside the declared permission tree "
+                    + "and were left untouched — a role may still be granting them: {Codes}.",
                     undeclared.Count, string.Join(", ", undeclared));
+
+            if (legacy.Count > 0)
+                _logger.LogWarning(
+                    "Permission catalog sync: auth.Permission still holds legacy wildcard rows, read as their nodes until "
+                    + "they are rewritten (docs/auth-migrate-permission-hierarchy.sql, after every instance runs 1.2.0): {Codes}.",
+                    string.Join(", ", legacy));
 
             if (added.Count == 0 && updated.Count == 0)
             {
                 _logger.LogInformation(
-                    "Permission catalog sync: {Count} declared permissions, all present and up to date.", usable.Count);
+                    "Permission catalog sync: {Count} nodes of the permission tree, all present and up to date.", usable.Count);
                 return;
             }
 
@@ -259,7 +296,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
                 "Permission catalog sync: added {Added} ({AddedCodes}), updated {Updated} ({UpdatedCodes}).",
                 added.Count, Codes(added), updated.Count, Codes(updated));
 
-            // A new row changes what a wildcard stands for, and an expanded set is cached. At a cold
+            // A new row changes what a node stands for, and an expanded set is cached. At a cold
             // start there is nothing to drop; this covers an instance that is already serving.
             if (added.Count > 0)
                 scope.ServiceProvider.GetService<IPermissionCache>()?.InvalidateAll();
@@ -362,7 +399,9 @@ namespace kdyf.Authorization.EntityFrameworkCore
 
             foreach (var permission in declared)
             {
-                if (permission.Code.Length > 50)
+                if (!PermissionHierarchy.IsValidCode(permission.Code))
+                    invalid[permission] = $"'{permission.Code}' is not a path of the permission tree (dot-separated segments of printable ASCII, no spaces, '*' or '|').";
+                else if (permission.Code.Length > 50)
                     invalid[permission] = $"'{permission.Code}' is longer than the 50 characters of PermissionCode.";
                 else if (permission.Code.Any(c => c > 127))
                     invalid[permission] = $"'{permission.Code}' has non-ASCII characters and PermissionCode is VARCHAR.";
@@ -392,7 +431,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
         }
 
         private static string Codes(IEnumerable<Declaration> permissions) =>
-            string.Join(", ", permissions.Select(p => p.Code));
+            string.Join(", ", permissions.Select(p => p.Code.Length == 0 ? "<root>" : p.Code));
 
         /// <summary>Nothing to stop.</summary>
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

@@ -125,9 +125,9 @@ public sealed class DirtyDataBankTests
 
     /// <summary>Wildcards are copied as they are, and compared expanded on both sides: no gain, no loss.</summary>
     [TestMethod]
-    public async Task Wildcards_are_copied_as_they_are() =>
+    public async Task Wildcards_are_copied_as_their_nodes() =>
         await RunAsync(ShapeEf, "INSERT INTO auth.RolePermission VALUES (2, 'Orders.*');", Tenant(), Expect.Success, async db =>
-            CollectionAssert.AreEqual(new[] { "Orders.*", "Orders.Read" }, await RowsAsync(db, "SELECT PermissionCode FROM authz.RolePermission WHERE roleValue = 'order-readers' ORDER BY 1")));
+            CollectionAssert.AreEqual(new[] { "Orders", "Orders.Read" }, await RowsAsync(db, "SELECT PermissionCode FROM authz.RolePermission WHERE roleValue = 'order-readers' ORDER BY 1")));
 
     /// <summary>Shape B: a token limited to one of its owner's roles is copied inactive (it would hold more); its count is approved.</summary>
     [TestMethod]

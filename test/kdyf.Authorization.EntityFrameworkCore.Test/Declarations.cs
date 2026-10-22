@@ -31,10 +31,10 @@ namespace demo
         public InvoicesPermission() : base("Invoices", "Invoices", "Issue and void invoices") { }
     }
 
-    /// <summary><c>demo.*</c> — a wildcard is a row like any other, and has to be synchronised
-    /// just the same: without it the RolePermission foreign key prevents a role from granting it.</summary>
-    internal sealed class AreaWildcard : PermissionDefinition
+    /// <summary><c>demo.*</c> — a wildcard class left over from before 1.2.0. The node <c>demo</c> stands for the
+    /// area now, so this gets no row.</summary>
+    internal sealed class LegacyAreaWildcard : PermissionDefinition
     {
-        public AreaWildcard() : base("*", "All demo.*", "Wildcard: all of demo") { }
+        public LegacyAreaWildcard() : base("*", "All demo.*", "Wildcard: all of demo") { }
     }
 }

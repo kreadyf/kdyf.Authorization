@@ -17,7 +17,7 @@
        internals, so a mismatched pair could break without any public API changing. pack-local.ps1 sets VersionSuffix;
        the release workflow sets Version from the tag (v1.0.0-preview.2 -> 1.0.0-preview.2). -->
   <PropertyGroup>
-    <VersionPrefix>1.1.0</VersionPrefix>
+    <VersionPrefix>1.2.0</VersionPrefix>
     <VersionSuffix Condition="'$(VersionSuffix)' == ''">dev</VersionSuffix>
     <Authors>kreadyf</Authors>
     <Company>kreadyf</Company>
@@ -51,10 +51,12 @@
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
-  <!-- Package validation: the net8.0 and net10.0 assets of each package must offer the same API. Once 1.0.0 is published,
-       set PackageValidationBaselineVersion to it, so that a 1.x that breaks the public API fails the build. -->
+  <!-- Package validation: the net8.0 and net10.0 assets of each package must offer the same API, and the API of the last
+       published version must still be there (PackageValidationBaselineVersion), so that a 1.x that breaks it fails the
+       pack. Raise the baseline after each release. -->
   <PropertyGroup Condition="'$(IsPackable)' == 'true'">
     <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>1.1.0</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <!-- The packages depend on each other with the EXACT version ([1.0.0]), never "1.0.0 or later": they ship together and

@@ -53,51 +53,30 @@ namespace kdyf.Authorization.AspNetCore
         /// permission that means "may use the application". Without it, a member with no role holds nothing.
         /// </summary>
         /// <remarks>
-        /// An exact permission, never a wildcard: it goes to everybody in the group. Checked at registration.
+        /// A declared permission with nothing below it, never a node of the tree: it goes to everybody in the group.
+        /// Checked at registration.
         /// </remarks>
         public KdyfAuthorizationBuilder EveryMemberHolds(PermissionDefinition permission)
         {
             ArgumentNullException.ThrowIfNull(permission);
-            if (permission.IsPattern)
-                throw new ArgumentException($"'{permission.Code}' is a wildcard: every member would hold everything it covers.", nameof(permission));
+            if (!PermissionHierarchy.IsValidCode(permission.Code) || permission.Code.Length == 0)
+                throw new ArgumentException($"'{permission.Code}' is not a permission: every member would hold everything it covers.", nameof(permission));
 
             MemberPermissionCodes.Add(permission.Code);
             return this;
         }
 
         /// <summary>
-        /// Gives every area a wildcard without writing its class: a host that declares <c>fabrikam.Controlling</c> and
-        /// <c>fabrikam.Invoices</c> gets <c>fabrikam.*</c>, its row is written at startup, and a role may grant it. See
-        /// <see cref="kdyf.Authorization.Authorization.AreaWildcards"/>.
+        /// No effect since 1.2.0: every area's node — <c>fabrikam</c> for <c>fabrikam.Controlling</c>, at every level —
+        /// is in the catalog by itself, and granting it grants the area. See <see cref="PermissionHierarchy"/>.
         /// </summary>
-        /// <remarks>
-        /// The area is the first segment of a code, and needs at least two permissions. A wildcard declared by a class
-        /// wins. Without this call, an area has a wildcard only if a class declares it.
-        /// </remarks>
-        /// <param name="except">
-        /// Areas that must not be granted as a whole — those holding a permission that is never to come through a
-        /// wildcard. Each must be an area the host declares permissions in: a misspelt one stops the host at
-        /// registration rather than deriving the wildcard it meant to prevent.
-        /// </param>
+        /// <param name="except">Ignored.</param>
+        [Obsolete("Area wildcards are replaced by the permission hierarchy: every area's node exists by itself. Remove the call.")]
         public KdyfAuthorizationBuilder AreaWildcards(params string[] except)
         {
             ArgumentNullException.ThrowIfNull(except);
-            if (DeriveAreaWildcards)
-                throw new InvalidOperationException("AddKdyfAuthorization: .AreaWildcards(...) is called twice. Call it once, with every excepted area.");
-
-            DeriveAreaWildcards = true;
-            foreach (var area in except)
-            {
-                ArgumentException.ThrowIfNullOrWhiteSpace(area, nameof(except));
-                AreaWildcardExceptions.Add(area);
-            }
-
             return this;
         }
-
-        internal bool DeriveAreaWildcards { get; private set; }
-
-        internal HashSet<string> AreaWildcardExceptions { get; } = new(StringComparer.Ordinal);
 
         /// <inheritdoc />
         public void AddProvider(string name, Action<KdyfAuthorizationProviderContext> register)

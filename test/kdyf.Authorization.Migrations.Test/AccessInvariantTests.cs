@@ -13,9 +13,10 @@ public sealed class AccessInvariantTests
     private const string A = "0f1e2d3c-0000-0000-0000-00000000000a";
     private const string B = "0f1e2d3c-0000-0000-0000-00000000000b";
     private static readonly DateTime Now = new(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc);
-    private static readonly IReadOnlySet<string> Declared = new HashSet<string> { "*", "Default", "Orders.Read", "Orders.Write", "Admin" };
+    /// <summary>The host's catalog as a tree: the root and the area 'Orders' are nodes of their own.</summary>
+    private static readonly IReadOnlySet<string> Declared = new HashSet<string> { "", "Default", "Orders", "Orders.Read", "Orders.Write", "Admin" };
 
-    /// <summary>Two users, each holding one role: A administers (role 1 '*'), B reads orders (role 2).</summary>
+    /// <summary>Two users, each holding one role: A administers (role 1 '*', read as the root), B reads orders (role 2).</summary>
     private static LegacyData Data(IEnumerable<LegacyGrant>? grants = null, IEnumerable<LegacyToken>? tokens = null, IEnumerable<LegacyTokenRole>? tokenRoles = null) => new()
     {
         Schema = "auth",

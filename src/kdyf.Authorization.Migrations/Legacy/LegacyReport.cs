@@ -110,7 +110,7 @@ namespace kdyf.Authorization.Migrations.Legacy
             var codes = data.Grants.Select(g => g.PermissionCode).Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal).ToList();
             var wildcards = codes.Where(c => c == "*" || c.EndsWith(".*", StringComparison.Ordinal)).ToList();
             if (wildcards.Count > 0)
-                Add(IssueSeverity.Info, "wildcards", $"granted as they are, never expanded: {string.Join(", ", wildcards)}.");
+                Add(IssueSeverity.Info, "wildcards", $"copied as the nodes they stand for ('*' as the root '', 'area.*' as 'area'): {string.Join(", ", wildcards)}.");
 
             var latin1 = Encoding.Latin1;
             var unrepresentable = codes.Where(c => latin1.GetString(latin1.GetBytes(c)) != c || c.Any(char.IsControl)).ToList();

@@ -72,8 +72,9 @@ namespace kdyf.Authorization.Abstractions
         /// <param name="description">What holding it actually allows.</param>
         protected PermissionDefinition(CodeShape shape, string code, string name, string? description = null)
         {
-            if (string.IsNullOrWhiteSpace(code))
-                throw new ArgumentException("A permission needs a code.", nameof(code));
+            // Empty is allowed: it declares the node of the namespace (or the root). Blank is not.
+            if (code is null || (code.Length > 0 && string.IsNullOrWhiteSpace(code)))
+                throw new ArgumentException("A permission code is a path of the permission tree, or empty for its namespace's node.", nameof(code));
 
             if (string.IsNullOrWhiteSpace(name))
                 throw new ArgumentException($"The permission '{code}' needs a name.", nameof(name));
@@ -83,7 +84,7 @@ namespace kdyf.Authorization.Abstractions
             // yields "fabrikam.Controlling" without having to repeat the area.
             var area = shape == CodeShape.Verbatim ? null : GetType().Namespace;
 
-            Code = area is null ? code : $"{area}.{code}";
+            Code = area is null ? code : code.Length == 0 ? area : $"{area}.{code}";
             Name = name;
             Description = description;
         }
@@ -97,8 +98,10 @@ namespace kdyf.Authorization.Abstractions
         /// <b>The NAMESPACE is the area, and it is part of the code.</b> A class in namespace
         /// <c>fabrikam</c> declaring "Controlling" is the permission <c>fabrikam.Controlling</c>; one
         /// in <c>fabrikam.Invoicing</c> declaring "Invoices" is <c>fabrikam.Invoicing.Invoices</c>. A
-        /// class with NO namespace declares its code whole — which is how <c>Default</c> and
-        /// <c>*</c>, the two that belong to no area, are written.
+        /// class with NO namespace declares its code whole — which is how <c>Default</c>, which
+        /// belongs to no area, is written. An EMPTY code declares the namespace's own node
+        /// (<c>fabrikam</c>), or the root when there is no namespace: only to give the node a name
+        /// and a description, since every node exists anyway (see <see cref="PermissionNode"/>).
         /// </para>
         /// <para>
         /// So the prefix is said once, and a new permission in an area inherits it by being put
@@ -123,16 +126,15 @@ namespace kdyf.Authorization.Abstractions
         public string? Description { get; }
 
         /// <summary>
-        /// Whether this is a WILDCARD rather than a capability — <c>*</c> or <c>prefix.*</c>.
+        /// Whether the code is written in the legacy wildcard syntax — <c>*</c> or <c>prefix.*</c>.
         /// </summary>
         /// <remarks>
-        /// A pattern is a row like any other (<c>auth.RolePermission</c> has a foreign key to
-        /// <c>auth.Permission</c>, so a role could not grant one otherwise), but it gates nothing on
-        /// its own: it stands for the codes it covers. Never write one into a
-        /// <c>RequireAuthorization</c> — the handler compares exact strings and would demand the
-        /// literal <c>*</c>. See <see cref="PermissionWildcards"/>.
+        /// Since 1.2.0 a node of the tree covers everything under it, so a wildcard has nothing left
+        /// to stand for: such a declaration is left out of the catalog and reported at startup. See
+        /// <see cref="PermissionHierarchy"/>.
         /// </remarks>
-        public bool IsPattern => PermissionWildcards.IsPattern(Code);
+        [Obsolete("Wildcards are replaced by the permission hierarchy: a node covers everything under it. See PermissionHierarchy.")]
+        public bool IsPattern => PermissionHierarchy.IsLegacyWildcard(Code);
 
         /// <summary>
         /// The policy name that grants to whoever holds ANY of these — what a screen shared by

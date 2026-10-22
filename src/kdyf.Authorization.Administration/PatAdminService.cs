@@ -96,7 +96,7 @@ namespace kdyf.Authorization.Administration
             // credential worth more than themselves.
             if (forAnother)
             {
-                var beyond = ownerPermissions.Where(code => !PermissionWildcards.Covers(actor.Permissions, code)).ToList();
+                var beyond = ownerPermissions.Where(code => !PermissionHierarchy.Covers(actor.Permissions, code)).ToList();
                 if (beyond.Count > 0)
                     return Outcome.Error<CreatePatResponse>("ownerObjectId",
                         $"'{ownerLabel}' holds permissions you do not: you cannot create a token that acts as them.");
@@ -248,7 +248,7 @@ namespace kdyf.Authorization.Administration
                 return null;
 
             var owner = await _permissions.GetPermissionsAsync(new UserIdentity(pat.OwnerObjectId, null), ct);
-            return owner.All(code => PermissionWildcards.Covers(actor.Permissions, code))
+            return owner.All(code => PermissionHierarchy.Covers(actor.Permissions, code))
                 ? null
                 : Outcome.Error<bool>("patId", $"'{pat.OwnerLabel}' holds permissions you do not: only an administrator who holds them can do this to their token.");
         }
@@ -267,7 +267,7 @@ namespace kdyf.Authorization.Administration
         }
 
         /// <summary>Whether the actor administers access — the configured code, or a pattern covering it.</summary>
-        private bool IsAdministrator(AdminActor actor) => PermissionWildcards.Covers(actor.Permissions, _administrationCode);
+        private bool IsAdministrator(AdminActor actor) => PermissionHierarchy.Covers(actor.Permissions, _administrationCode);
 
         /// <summary>Stages the entry; the caller's SaveChanges stores it.</summary>
         private void Audit(AdminActor actor, string action, PersonalAccessToken pat, object details) =>

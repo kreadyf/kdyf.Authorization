@@ -11,7 +11,7 @@ namespace kdyf.Authorization.EntityFrameworkCore.Entities
     /// </remarks>
     public class Permission
     {
-        /// <summary>The code, e.g. <c>portal.Read</c>, or a wildcard (<c>*</c>). The key.</summary>
+        /// <summary>The code, e.g. <c>portal.Read</c>, a node above codes (<c>portal</c>) or the root (<c>""</c>). The key.</summary>
         public string PermissionCode { get; set; } = string.Empty;
 
         /// <summary>Human-readable name of the permission.</summary>

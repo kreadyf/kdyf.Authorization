@@ -121,26 +121,17 @@ namespace kdyf.Authorization
         /// base access, the one that means "may use the application".
         /// </summary>
         /// <remarks>
-        /// Exact declared codes only, checked by <c>AddAssignedRoles</c> at registration: a pattern here would
-        /// hand everything it covers to everybody in the group.
+        /// Declared codes only, checked by <c>AddAssignedRoles</c> at registration. A node here would hand
+        /// everything below it to everybody in the group: only codes a class declares are accepted.
         /// </remarks>
         public HashSet<string> MemberPermissionCodes { get; set; } = new(StringComparer.Ordinal);
 
-        /// <summary>
-        /// Whether <c>AddAssignedRoles</c> adds the wildcard of every area to the declared permissions — <c>fabrikam.*</c>
-        /// for an area with at least two permissions — so that nobody has to write its class. See
-        /// <see cref="Authorization.AreaWildcards"/>.
-        /// </summary>
-        /// <remarks>
-        /// Off by default: a wildcard grants more than it looks like on a roles screen, so a host decides to have them.
-        /// </remarks>
+        /// <summary>No effect since 1.2.0: every area's node is in the catalog by itself (see <c>PermissionNode</c>).</summary>
+        [Obsolete("Area wildcards are replaced by the permission hierarchy: every area's node exists by itself.")]
         public bool AreaWildcards { get; set; }
 
-        /// <summary>
-        /// The areas that get no wildcard when <see cref="AreaWildcards"/> is on: those holding a permission that must
-        /// never come through a wildcard. Each must be an area the host declares permissions in — checked at
-        /// registration, because a misspelt one would derive the very wildcard it meant to prevent.
-        /// </summary>
+        /// <summary>No effect since 1.2.0, like <see cref="AreaWildcards"/>.</summary>
+        [Obsolete("Area wildcards are replaced by the permission hierarchy: every area's node exists by itself.")]
         public HashSet<string> AreaWildcardExceptions { get; set; } = new(StringComparer.Ordinal);
 
         internal void Validate()
@@ -151,10 +142,6 @@ namespace kdyf.Authorization
 
             if (CacheDuration < TimeSpan.Zero)
                 throw new InvalidOperationException("CacheDuration cannot be negative.");
-
-            if (!AreaWildcards && AreaWildcardExceptions.Count > 0)
-                throw new InvalidOperationException(
-                    "AreaWildcardExceptions are set but AreaWildcards is off: no area gets a wildcard, so there is nothing to except.");
         }
     }
 }

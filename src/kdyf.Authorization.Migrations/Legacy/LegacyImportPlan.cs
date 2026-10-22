@@ -1,3 +1,4 @@
+using kdyf.Authorization.Authorization;
 using kdyf.Authorization.Migrations.Schema;
 
 namespace kdyf.Authorization.Migrations.Legacy
@@ -125,11 +126,13 @@ namespace kdyf.Authorization.Migrations.Legacy
             }
 
             // ── What roles grant ──
+            // A legacy wildcard is copied as the node it stands for: '*' as the root (''), 'area.*' as 'area'. A malformed one
+            // ('.*', 'a..*') has no node and is not copied, like an undeclared code.
             var grants = new List<TargetGrant>();
             foreach (var group in data.Grants.Where(g => roleMap.ContainsKey(g.RoleId)).GroupBy(g => g.PermissionCode, StringComparer.Ordinal))
             {
-                if (declaredCodes.Contains(group.Key))
-                    grants.AddRange(group.Select(g => new TargetGrant(roleMap[g.RoleId], g.PermissionCode)));
+                if (PermissionHierarchy.TryNormalizeStoredGrant(group.Key, out var path) && declaredCodes.Contains(path))
+                    grants.AddRange(group.Select(g => new TargetGrant(roleMap[g.RoleId], path)));
                 else
                     Add(IssueSeverity.Warning, "code-undeclared", null,
                         $"'{group.Key}' is granted by roles {string.Join(", ", group.Select(g => g.RoleId).Distinct())} but the host does not declare it: not copied (it would grant nothing).");

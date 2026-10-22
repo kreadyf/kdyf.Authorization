@@ -12,7 +12,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
     /// <remarks>
     /// A token grants what ITS OWNER can do right now: its permissions are the owner's, resolved through
     /// the SAME <see cref="IPermissionStore"/> that authorizes the owner's own requests — the access
-    /// group, the owner's roles, wildcard expansion and the cache. So a token can never outlive its
+    /// group, the owner's roles, the expansion of the nodes they grant and the cache. So a token can never outlive its
     /// owner's access: take the owner out of the group, remove their role or disable their account, and
     /// the token stops working within the same window as the owner's session does.
     /// </remarks>

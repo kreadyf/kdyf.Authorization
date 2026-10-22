@@ -51,7 +51,7 @@ namespace kdyf.Authorization.Administration.Models
         public List<AssignedRoleResponse> Roles { get; set; } = new();
 
         /// <summary>
-        /// Effective permissions: what every member holds plus what their roles grant, wildcards expanded. Empty
+        /// Effective permissions: what every member holds plus what their roles grant, nodes expanded. Empty
         /// without access.
         /// </summary>
         public List<string> Permissions { get; set; } = new();
@@ -268,7 +268,8 @@ namespace kdyf.Authorization.Administration.Models
         /// <summary>The description given in the declaration, if any.</summary>
         public string? Description { get; set; }
 
-        /// <summary>A wildcard (<c>*</c>, <c>area.*</c>): granted by roles, never demanded by a door.</summary>
+        /// <summary>Always false since 1.2.0: the catalog holds no wildcards, a node covers everything under it. Kept so
+        /// that clients reading it do not break.</summary>
         public bool IsPattern { get; set; }
 
         /// <summary>Held by every member of the access group without any role (the base access).</summary>

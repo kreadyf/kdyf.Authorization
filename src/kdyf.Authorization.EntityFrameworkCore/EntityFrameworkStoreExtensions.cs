@@ -92,7 +92,7 @@ namespace kdyf.Authorization.EntityFrameworkCore
 
                 // Which permissions exist, persisted: auth.Permission is brought in line with the declared classes
                 // when the host starts (inserted, names updated, never deleted). RolePermission points at it. Written
-                // from the catalog authorization reads (DeclaredPermissions), so derived area wildcards get their rows too.
+                // from the catalog authorization reads (DeclaredPermissions), so the implicit nodes of the tree get their rows too.
                 var declarations = context.DeclarationAssemblies;
                 services.AddPermissionCatalogSync<AuthorizationDbContext>(declarations[0], sync =>
                 {

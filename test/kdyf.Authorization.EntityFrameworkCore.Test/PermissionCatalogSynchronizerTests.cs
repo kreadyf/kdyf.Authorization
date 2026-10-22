@@ -28,8 +28,36 @@ public class PermissionCatalogSynchronizerTests
         await fixture.SyncAsync(TestPermissions.All());
 
         CollectionAssert.AreEqual(
-            new[] { "Default", "demo.*", "demo.Controlling", "demo.Invoices" },
+            new[] { "", "Default", "demo", "demo.Controlling", "demo.Invoices" },
             fixture.Rows().Select(r => r.PermissionCode).ToArray());
+    }
+
+    /// <summary>
+    /// The nodes no class declares — the area and the root — get rows of their own: the foreign key of
+    /// <c>auth.RolePermission</c> would otherwise stop a role from granting them.
+    /// </summary>
+    [TestMethod]
+    public async Task Inserts_the_ancestors_and_the_root()
+    {
+        using var fixture = new CatalogFixture();
+
+        await fixture.SyncAsync(new[] { TestPermissions.Controlling() });
+
+        Assert.AreEqual("demo", fixture.Row("demo")!.Name);
+        Assert.AreEqual("Everything", fixture.Row("")!.Name);
+    }
+
+    /// <summary>An implicit node owns no metadata: a label somebody gave its row stays.</summary>
+    [TestMethod]
+    public async Task Never_overwrites_the_label_of_an_implicit_node()
+    {
+        using var fixture = new CatalogFixture()
+            .WithRows(CatalogFixture.RowFor("demo", "Demo, all of it", "Given by hand"));
+
+        await fixture.SyncAsync(new[] { TestPermissions.Controlling() });
+
+        Assert.AreEqual("Demo, all of it", fixture.Row("demo")!.Name);
+        Assert.AreEqual("Given by hand", fixture.Row("demo")!.Description);
     }
 
     [TestMethod]
@@ -44,19 +72,15 @@ public class PermissionCatalogSynchronizerTests
         Assert.AreEqual("The controlling screens", row.Description);
     }
 
-    /// <summary>
-    /// A wildcard is a row like any other. Without it, the foreign key of
-    /// <c>auth.RolePermission</c> prevents a role from granting it — so if the synchronizer
-    /// treated it as "not a real permission", the administration roles would cease to exist.
-    /// </summary>
+    /// <summary>A wildcard class left over from before 1.2.0 gets no row: the node stands for the area.</summary>
     [TestMethod]
-    public async Task Inserts_a_wildcard_like_any_other_permission()
+    public async Task A_wildcard_declaration_gets_no_row()
     {
         using var fixture = new CatalogFixture();
 
         await fixture.SyncAsync(new[] { TestPermissions.Wildcard() });
 
-        Assert.IsNotNull(fixture.Row("demo.*"));
+        Assert.IsNull(fixture.Row("demo.*"));
     }
 
     [TestMethod]
@@ -67,7 +91,7 @@ public class PermissionCatalogSynchronizerTests
 
         await fixture.SyncAsync(TestPermissions.All());
 
-        Assert.AreEqual(4, fixture.Rows().Count);
+        Assert.AreEqual(5, fixture.Rows().Count);
     }
 
     // =====================================================================
@@ -114,15 +138,19 @@ public class PermissionCatalogSynchronizerTests
     public async Task Leaves_a_row_that_already_matches_untouched()
     {
         using var fixture = new CatalogFixture()
-            .WithRows(CatalogFixture.RowFor("demo.Controlling", "Controlling", "The controlling screens"));
+            .WithRows(Tree(CatalogFixture.RowFor("demo.Controlling", "Controlling", "The controlling screens")));
 
         await fixture.SyncAsync(new[] { TestPermissions.Controlling() });
 
         var row = fixture.Row("demo.Controlling")!;
         Assert.AreEqual("Controlling", row.Name);
         Assert.AreEqual("The controlling screens", row.Description);
-        Assert.AreEqual(1, fixture.Rows().Count);
+        Assert.AreEqual(3, fixture.Rows().Count, "the row, its area and the root: nothing added");
     }
+
+    /// <summary>The rows of the root and of <c>demo</c> next to <paramref name="row"/>: a catalog with nothing to add.</summary>
+    private static Entities.Permission[] Tree(Entities.Permission row) =>
+        [CatalogFixture.RowFor("", "Everything", null), CatalogFixture.RowFor("demo", "demo", null), row];
 
     // =====================================================================
     // What it does NOT do
@@ -141,7 +169,7 @@ public class PermissionCatalogSynchronizerTests
         await fixture.SyncAsync(TestPermissions.All());
 
         Assert.IsNotNull(fixture.Row("demo.Retired"), "a row without a class cannot disappear on its own");
-        Assert.AreEqual(5, fixture.Rows().Count);
+        Assert.AreEqual(6, fixture.Rows().Count);
     }
 
     /// <summary>
@@ -211,7 +239,7 @@ public class PermissionCatalogSynchronizerTests
     // =====================================================================
 
     /// <summary>
-    /// A new row changes what a wildcard stands for, and the expanded sets are
+    /// A new row changes what a node stands for, and the expanded sets are
     /// cached: an instance that is already serving has to drop them.
     /// </summary>
     [TestMethod]
@@ -228,7 +256,7 @@ public class PermissionCatalogSynchronizerTests
     public async Task Does_not_drop_the_cache_when_there_was_nothing_to_add()
     {
         using var fixture = new CatalogFixture()
-            .WithRows(CatalogFixture.RowFor("demo.Controlling", "Controlling", "The controlling screens"));
+            .WithRows(Tree(CatalogFixture.RowFor("demo.Controlling", "Controlling", "The controlling screens")));
 
         await fixture.SyncAsync(new[] { TestPermissions.Controlling() });
 
@@ -244,7 +272,7 @@ public class PermissionCatalogSynchronizerTests
     public async Task Does_not_drop_the_cache_when_it_only_updated_a_name()
     {
         using var fixture = new CatalogFixture()
-            .WithRows(CatalogFixture.RowFor("demo.Controlling", "old name", "The controlling screens"));
+            .WithRows(Tree(CatalogFixture.RowFor("demo.Controlling", "old name", "The controlling screens")));
 
         await fixture.SyncAsync(new[] { TestPermissions.Controlling() });
 
@@ -303,7 +331,7 @@ public class PermissionCatalogSynchronizerTests
     public async Task A_refused_update_is_reported_too()
     {
         using var fixture = new CatalogFixture()
-            .WithRows(CatalogFixture.RowFor("demo.Controlling", "old name", null));
+            .WithRows(Tree(CatalogFixture.RowFor("demo.Controlling", "old name", null)));
         fixture.MakeReadOnly();
 
         var error = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
@@ -336,7 +364,7 @@ public class PermissionCatalogSynchronizerTests
 
         await fixture.SyncAsync(new[] { TestPermissions.Controlling(), TestPermissions.Controlling() });
 
-        Assert.AreEqual(1, fixture.Rows().Count);
+        Assert.AreEqual(1, fixture.Rows().Count(r => r.PermissionCode == "demo.Controlling"));
     }
 
     /// <summary>And in Production it does not prevent startup: it logs it and carries on, like everything else here.</summary>
@@ -392,22 +420,21 @@ public class PermissionCatalogSynchronizerTests
     // =====================================================================
 
     /// <summary>
-    /// How UseEntityFrameworkStore runs it: the rows come from the catalog authorization reads, so a wildcard derived
-    /// for an area — which no class declares and no scan would find — gets its row, and a role can grant it.
+    /// How UseEntityFrameworkStore runs it: the rows come from the catalog authorization reads, so the nodes no class
+    /// declares and no scan would find get their rows, and a role can grant them.
     /// </summary>
     [TestMethod]
-    public async Task Writes_the_rows_of_the_declared_permissions_derived_wildcards_included()
+    public async Task Writes_the_rows_of_the_declared_permissions_implicit_nodes_included()
     {
-        Abstractions.PermissionDefinition[] classes = [TestPermissions.Controlling(), TestPermissions.Invoices(), TestPermissions.NoArea()];
-        var declared = new Roles.DeclaredPermissions([.. classes, .. Authorization.AreaWildcards.Derive(classes)]);
+        var declared = new Roles.DeclaredPermissions([TestPermissions.Controlling(), TestPermissions.Invoices(), TestPermissions.NoArea()]);
         using var fixture = new CatalogFixture(declared: declared);
 
         await fixture.SyncFromDeclaredPermissionsAsync();
 
         CollectionAssert.AreEqual(
-            new[] { "Default", "demo.*", "demo.Controlling", "demo.Invoices" },
+            new[] { "", "Default", "demo", "demo.Controlling", "demo.Invoices" },
             fixture.Rows().Select(r => r.PermissionCode).ToArray());
-        Assert.AreEqual("All demo", fixture.Row("demo.*")!.Name);
+        Assert.AreEqual("demo", fixture.Row("demo")!.Name);
     }
 
     /// <summary>Composed without AddAssignedRoles there is no catalog to read: it scans, as it always did.</summary>
@@ -429,6 +456,6 @@ public class PermissionCatalogSynchronizerTests
 
         await fixture.SyncAsync(new[] { TestPermissions.Controlling() });
 
-        CollectionAssert.AreEqual(new[] { "demo.Controlling" }, fixture.Rows().Select(r => r.PermissionCode).ToArray());
+        CollectionAssert.AreEqual(new[] { "", "demo", "demo.Controlling" }, fixture.Rows().Select(r => r.PermissionCode).ToArray());
     }
 }

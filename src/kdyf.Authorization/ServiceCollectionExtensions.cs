@@ -57,11 +57,11 @@ namespace kdyf.Authorization
         private readonly IServiceCollection _services;
         private readonly PermissionAuthorizationOptions _options;
 
-        /// <summary>The consumer's store, remembered so <see cref="ExpandWildcards"/> can rebuild the
+        /// <summary>The consumer's store, remembered so <see cref="ExpandHierarchy"/> can rebuild the
         /// chain around it.</summary>
         private Type? _storeType;
 
-        private bool _expandWildcards;
+        private bool _expandHierarchy;
 
         private bool _policiesAdded;
 
@@ -104,7 +104,7 @@ namespace kdyf.Authorization
         /// <remarks>
         /// Registers the <see cref="DeclaredPermissions"/> (also as the <see cref="IPermissionCatalog"/>), the
         /// <see cref="RolePermissionMapProvider"/>, and <see cref="MembershipPermissionStore"/> as the store
-        /// (cached). Wildcards are expanded by the map itself, so <see cref="ExpandWildcards"/> is not needed.
+        /// (cached). Nodes are expanded by the map itself, so <see cref="ExpandHierarchy"/> is not needed.
         /// </remarks>
         public PermissionAuthorizationBuilder AddAssignedRoles(Assembly declarations)
         {
@@ -127,23 +127,21 @@ namespace kdyf.Authorization
             // Discovered HERE, not lazily: two classes claiming one code stop the host at registration.
             var permissions = DiscoverAcross(declarations, PermissionDefinition.DiscoverIn, p => p.Code, "permission code");
 
-            // The area wildcards join the declarations here, once: everything that reads the catalog — the role map, the
-            // administration, the catalog sync, the legacy import — reads this DeclaredPermissions, so none of them can
-            // disagree about which wildcards exist.
-            if (_options.AreaWildcards)
-                permissions = [.. permissions, .. AreaWildcards.Derive(permissions, _options.AreaWildcardExceptions)];
-
+            // The tree is completed here, once: everything that reads the catalog — the role map, the administration,
+            // the catalog sync, the legacy import — reads this DeclaredPermissions, so none of them can disagree about
+            // which nodes exist.
             var declared = new DeclaredPermissions(permissions);
 
-            // What every member holds must be exact, declared codes: a typo would silently lock everybody out,
-            // and a pattern would hand everything it covers to the whole group.
+            // What every member holds must be declared leaves: a typo would silently lock everybody out, and a node
+            // would hand everything below it to the whole group.
             var wrong = _options.MemberPermissionCodes
-                .Where(code => declared.Find(code) is not { IsPattern: false })
+                .Where(code => !declared.IsExplicit(code)
+                               || declared.Codes.Any(other => other.StartsWith(code + PermissionHierarchy.Separator, StringComparison.Ordinal)))
                 .OrderBy(code => code, StringComparer.Ordinal)
                 .ToList();
             if (wrong.Count > 0)
                 throw new InvalidOperationException(
-                    $"MemberPermissionCodes must be declared, non-wildcard permission codes: {string.Join(", ", wrong)}.");
+                    $"MemberPermissionCodes must be declared permissions with nothing below them: {string.Join(", ", wrong)}.");
 
             _services.AddSingleton(declared);
             _services.RemoveAll<IPermissionCatalog>();
@@ -158,7 +156,7 @@ namespace kdyf.Authorization
 
         /// <summary>
         /// Registers the catalog of valid permissions, used by the startup validation and — when
-        /// <see cref="ExpandWildcards"/> is on — to resolve the patterns a role grants.
+        /// <see cref="ExpandHierarchy"/> is on — to expand the nodes a role grants.
         /// </summary>
         public PermissionAuthorizationBuilder AddCatalog<TCatalog>()
             where TCatalog : class, IPermissionCatalog
@@ -298,9 +296,10 @@ namespace kdyf.Authorization
         }
 
         /// <summary>
-        /// Lets a role grant <c>*</c> or <c>prefix.*</c> instead of every code one by one. The
-        /// patterns are resolved against the catalog before anything sees the set, so handlers,
-        /// endpoints and clients keep comparing exact codes.
+        /// Lets a role grant a node of the permission tree — <c>""</c> for everything, <c>prefix</c> for an area —
+        /// instead of every code one by one. The nodes are expanded against the catalog before anything sees the
+        /// set, so handlers, endpoints and clients keep comparing exact codes. Stored legacy wildcards
+        /// (<c>*</c>, <c>prefix.*</c>) are read as the root and <c>prefix</c>.
         /// </summary>
         /// <remarks>
         /// Chain it AFTER <see cref="AddStore{TStore}"/> and <see cref="AddCatalog{TCatalog}"/> —
@@ -309,32 +308,36 @@ namespace kdyf.Authorization
         /// refusing every change because it counts no administrators left. A startup error is a far
         /// better place to find that out.
         /// </remarks>
-        public PermissionAuthorizationBuilder ExpandWildcards()
+        public PermissionAuthorizationBuilder ExpandHierarchy()
         {
             if (_storeType is null)
                 throw new InvalidOperationException(
-                    "ExpandWildcards() has to be chained after AddStore<TStore>(): there is no store to wrap.");
+                    "ExpandHierarchy() has to be chained after AddStore<TStore>(): there is no store to wrap.");
 
             if (!_services.Any(d => d.ServiceType == typeof(IPermissionCatalog)))
                 throw new InvalidOperationException(
-                    "ExpandWildcards() needs a permission catalog to resolve patterns against. "
+                    "ExpandHierarchy() needs a permission catalog to expand the nodes against. "
                     + "Chain AddCatalog<TCatalog>() before it.");
 
-            _expandWildcards = true;
+            _expandHierarchy = true;
             RegisterStoreChain();
 
             return this;
         }
 
+        /// <summary>The name of <see cref="ExpandHierarchy"/> before 1.2.0.</summary>
+        [Obsolete("Use ExpandHierarchy(): wildcards are replaced by the permission hierarchy.")]
+        public PermissionAuthorizationBuilder ExpandWildcards() => ExpandHierarchy();
+
         /// <summary>
         /// (Re)registers <see cref="IPermissionStore"/> as the full chain. Called again by
-        /// <see cref="ExpandWildcards"/>, so the previous registration is removed first — two
+        /// <see cref="ExpandHierarchy"/>, so the previous registration is removed first — two
         /// registrations of one service would leave which decorator wins to registration order.
         /// </summary>
         private void RegisterStoreChain()
         {
             var storeType = _storeType!;
-            var expand = _expandWildcards;
+            var expand = _expandHierarchy;
 
             _services.RemoveAll<IPermissionStore>();
             _services.AddScoped<IPermissionStore>(sp =>
@@ -342,7 +345,7 @@ namespace kdyf.Authorization
                 var store = (IPermissionStore)sp.GetRequiredService(storeType);
 
                 if (expand)
-                    store = new WildcardExpandingPermissionStore(store, sp.GetRequiredService<IPermissionCatalog>());
+                    store = new HierarchyExpandingPermissionStore(store, sp.GetRequiredService<IPermissionCatalog>());
 
                 // The role map, when the store resolves through one: the cache must not outlive it.
                 return new CachingPermissionStore(

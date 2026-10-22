@@ -69,12 +69,11 @@ namespace kdyf.Authorization.Authorization
         /// the way the handler evaluates its requirements.
         /// </summary>
         /// <remarks>
-        /// <c>Contains</c>, not a wildcard-aware comparison: the effective set already holds the codes a pattern
-        /// stands for, so exact matching is what the handler does and therefore what the truth is. A policy with
-        /// no rules is satisfied by being authenticated, which the caller already is.
+        /// <see cref="PermissionHierarchy.Covers"/>, as the handler compares: a node held covers the codes below it.
+        /// A policy with no rules is satisfied by being authenticated, which the caller already is.
         /// </remarks>
         private static bool Satisfies(Policy policy, IReadOnlySet<string> held) =>
-            policy.Rules.All(rule => rule.Any(permission => held.Contains(permission.Code)));
+            policy.Rules.All(rule => rule.Any(permission => PermissionHierarchy.Covers(held, permission.Code)));
     }
 
     /// <param name="Name">The policy's name.</param>

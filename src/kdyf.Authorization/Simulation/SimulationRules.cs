@@ -21,8 +21,8 @@ namespace kdyf.Authorization.Simulation
         public static string RequiresPermission(string permission) => $"Simulating another user requires {permission}.";
 
         /// <summary>
-        /// What the person holds that the caller does not. "Covers", not a subset test, so whoever holds a wildcard covers
-        /// every code it stands for.
+        /// What the person holds that the caller does not. "Covers", not a subset test, so whoever holds a node covers
+        /// every code below it.
         /// </summary>
         /// <remarks>
         /// Read-only is not enough on its own: a caller holding only the simulation permission could otherwise borrow an
@@ -32,7 +32,7 @@ namespace kdyf.Authorization.Simulation
         {
             ArgumentNullException.ThrowIfNull(borrowed);
             ArgumentNullException.ThrowIfNull(held);
-            return borrowed.Where(code => !PermissionWildcards.Covers(held, code)).ToList();
+            return borrowed.Where(code => !PermissionHierarchy.Covers(held, code)).ToList();
         }
 
         /// <summary>Whether the person holds anything the caller does not: see <see cref="HeldBeyond"/>.</summary>

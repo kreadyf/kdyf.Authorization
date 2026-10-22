@@ -11,11 +11,6 @@ namespace apitest
         public BaseAccess() : base(CodeShape.Verbatim, "Default", "Base access") { }
     }
 
-    internal sealed class Everything : PermissionDefinition
-    {
-        public Everything() : base(CodeShape.Verbatim, "*", "Everything") { }
-    }
-
     /// <summary><c>apitest.Admin</c>: administer access. The lockout guard counts it.</summary>
     internal sealed class AdminPermission : PermissionDefinition
     {
@@ -66,7 +61,8 @@ namespace apitest
             // out Reader, never Editor or Admin.
             new() { RoleValue = "App.UserManager", PermissionCode = "apitest.Read" },
             new() { RoleValue = "App.UserManager", PermissionCode = "apitest.Admin" },
-            new() { RoleValue = "App.Admin", PermissionCode = "*" },
+            // The root: everything, permissions added later included.
+            new() { RoleValue = "App.Admin", PermissionCode = PermissionHierarchy.Root },
         ];
     }
 

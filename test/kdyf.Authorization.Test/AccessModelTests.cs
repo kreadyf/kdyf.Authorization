@@ -1,4 +1,5 @@
 using kdyf.Authorization.Abstractions;
+using kdyf.Authorization.Authorization;
 using kdyf.Authorization.Caching;
 using kdyf.Authorization.Roles;
 using Microsoft.Extensions.Caching.Memory;
@@ -41,12 +42,12 @@ namespace kdyf.Authorization.Test
             Assert.AreEqual(0, map.ForMember(Array.Empty<string>()).Count);
         }
 
-        /// <summary>The wildcard stands for every declared code, so a permission added later reaches the administrator.</summary>
+        /// <summary>The root stands for every declared code, so a permission added later reaches the administrator.</summary>
         [TestMethod]
-        public void The_wildcard_expands_to_every_declared_code_and_is_kept()
+        public void The_root_expands_to_every_declared_code_and_is_kept()
         {
             CollectionAssert.IsSubsetOf(
-                new[] { "Default", "portal.Read", "portal.Edit", "audit.Read", "admin.Users", "support.Simulate", "*" },
+                new[] { "Default", "portal.Read", "portal.Edit", "audit.Read", "admin.Users", "support.Simulate", "portal", PermissionHierarchy.Root },
                 TestRoles.Map().EffectivePermissions(new[] { "Portal.Admin" }).ToArray());
         }
 
@@ -78,7 +79,7 @@ namespace kdyf.Authorization.Test
             CollectionAssert.AreEqual(new[] { "portal.Reed" }, map.Undeclared["Portal.Reader"].ToArray());
         }
 
-        /// <summary>Nobody gives away more than they hold, and whoever holds '*' holds everything.</summary>
+        /// <summary>Nobody gives away more than they hold, and whoever holds the root holds everything.</summary>
         [TestMethod]
         public void A_role_is_covered_only_by_somebody_holding_all_it_grants()
         {
@@ -87,7 +88,7 @@ namespace kdyf.Authorization.Test
             Assert.IsTrue(map.IsCoveredBy("Portal.Editor", map.ForMember(new[] { "Portal.Admin" })));
             Assert.IsFalse(map.IsCoveredBy("Portal.Editor", map.ForMember(new[] { "Portal.Reader" })));
             Assert.IsFalse(map.IsCoveredBy("Portal.Admin", map.ForMember(new[] { "Portal.Editor" })),
-                "an editor cannot hand out the wildcard");
+                "an editor cannot hand out the root");
         }
 
         [TestMethod]
@@ -134,7 +135,7 @@ namespace kdyf.Authorization.Test
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => provider.GetAsync());
 
             source.FailWith = null;
-            Assert.IsTrue((await provider.GetAsync()).GrantsOf("Portal.Admin").Contains("*"));
+            Assert.IsTrue((await provider.GetAsync()).GrantsOf("Portal.Admin").Contains(PermissionHierarchy.Root));
         }
 
         /// <summary>
@@ -168,7 +169,7 @@ namespace kdyf.Authorization.Test
             };
             var log = new ListLogger<RolePermissionStartupCheck>();
 
-            await new RolePermissionStartupCheck(Provider(new FakeRolePermissionSource(grants)), log).StartAsync(default);
+            await new RolePermissionStartupCheck(Provider(new FakeRolePermissionSource(grants)), TestRoles.Declared(), log).StartAsync(default);
 
             var warning = log.Entries.Single(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning);
             StringAssert.Contains(warning.Message, "Portal.Reader: portal.Retired");
@@ -179,7 +180,7 @@ namespace kdyf.Authorization.Test
         {
             var log = new ListLogger<RolePermissionStartupCheck>();
 
-            await new RolePermissionStartupCheck(Provider(new FakeRolePermissionSource(TestRoles.Grants())), log).StartAsync(default);
+            await new RolePermissionStartupCheck(Provider(new FakeRolePermissionSource(TestRoles.Grants())), TestRoles.Declared(), log).StartAsync(default);
 
             Assert.AreEqual(0, log.Entries.Count);
         }
@@ -191,7 +192,7 @@ namespace kdyf.Authorization.Test
             var source = new FakeRolePermissionSource(TestRoles.Grants()) { FailWith = new InvalidOperationException("database down") };
             var log = new ListLogger<RolePermissionStartupCheck>();
 
-            await new RolePermissionStartupCheck(Provider(source), log).StartAsync(default);
+            await new RolePermissionStartupCheck(Provider(source), TestRoles.Declared(), log).StartAsync(default);
 
             Assert.AreEqual(Microsoft.Extensions.Logging.LogLevel.Error, log.Entries.Single().Level);
         }
@@ -552,7 +553,7 @@ namespace kdyf.Authorization.Test
 
         internal static DeclaredPermissions Declared() => new(new PermissionDefinition[]
         {
-            new global::DefaultPermission(), new Read(), new Edit(), new AuditRead(), new AdminUsers(), new Simulate(), new Everything()
+            new global::DefaultPermission(), new Read(), new Edit(), new AuditRead(), new AdminUsers(), new Simulate()
         });
 
         internal static IReadOnlyDictionary<string, IReadOnlySet<string>> Grants() => new Dictionary<string, IReadOnlySet<string>>
@@ -562,7 +563,7 @@ namespace kdyf.Authorization.Test
             ["Portal.Auditor"] = Set("audit.Read"),
             // May simulate, and reads — but does not edit and does not administer.
             ["Portal.Support"] = Set("portal.Read", "support.Simulate"),
-            ["Portal.Admin"] = Set("*"),
+            ["Portal.Admin"] = Set(PermissionHierarchy.Root),
         };
 
         internal static RolePermissionMap Map() => new(Grants(), Declared().Codes, MemberGrants);
@@ -575,6 +576,5 @@ namespace kdyf.Authorization.Test
         internal sealed class AuditRead : PermissionDefinition { public AuditRead() : base(CodeShape.Verbatim, "audit.Read", "Audit") { } }
         internal sealed class AdminUsers : PermissionDefinition { public AdminUsers() : base(CodeShape.Verbatim, "admin.Users", "Users") { } }
         internal sealed class Simulate : PermissionDefinition { public Simulate() : base(CodeShape.Verbatim, "support.Simulate", "Simulate") { } }
-        internal sealed class Everything : PermissionDefinition { public Everything() : base(CodeShape.Verbatim, "*", "Everything") { } }
     }
 }

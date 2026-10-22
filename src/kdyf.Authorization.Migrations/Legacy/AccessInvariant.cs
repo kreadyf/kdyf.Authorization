@@ -63,7 +63,7 @@ namespace kdyf.Authorization.Migrations.Legacy
 
     /// <summary>
     /// The invariant of the legacy import: nobody gains. For each person (by object id) and each token, what they may do
-    /// after the import is a subset of what they could do before, compared on the codes the host declares with wildcards
+    /// after the import is a subset of what they could do before, compared on the codes the host declares with nodes
     /// expanded the same way on both sides. "Before" is the legacy application as it decided (its gate, as snapshotted,
     /// and the roles); "after" is this package as it will decide (the new gate, the suspension, the roles and the base
     /// access of members), exactly as <see cref="RolePermissionMap.ForMember"/> computes it at run time.
@@ -76,9 +76,9 @@ namespace kdyf.Authorization.Migrations.Legacy
             InvariantSettings settings, IReadOnlyList<InvariantException> exceptions, DateTime now)
         {
             var issues = new List<ImportIssue>();
-            var concrete = declared.Where(c => !PermissionWildcards.IsPattern(c)).ToHashSet(StringComparer.Ordinal);
+            var concrete = declared.Where(PermissionHierarchy.IsValidCode).ToHashSet(StringComparer.Ordinal);
             IReadOnlySet<string> Concrete(IReadOnlySet<string> granted) =>
-                concrete.Where(c => PermissionWildcards.Covers(granted, c)).ToHashSet(StringComparer.Ordinal);
+                concrete.Where(c => PermissionHierarchy.Covers(granted, c)).ToHashSet(StringComparer.Ordinal);
             bool Excepted(string kind, string? objectId, string? code) => exceptions.Any(e =>
                 e.Kind == kind && (e.ObjectId is null || string.Equals(e.ObjectId, objectId, StringComparison.OrdinalIgnoreCase))
                 && (e.Code is null or "*" || string.Equals(e.Code, code, StringComparison.Ordinal)));
@@ -88,10 +88,10 @@ namespace kdyf.Authorization.Migrations.Legacy
             var heldBy = data.UserRoles.ToLookup(ur => ur.UserId, ur => ur.RoleId);
             var users = data.Users.ToDictionary(u => u.UserId);
             var snapshot = identities.ToDictionary(i => i.LegacyUserId);
-            IReadOnlySet<string> LegacyCodes(IEnumerable<int> roles) => roles.SelectMany(r => legacyGrants[r]).ToHashSet(StringComparer.Ordinal);
+            IReadOnlySet<string> LegacyCodes(IEnumerable<int> roles) => PermissionHierarchy.NormalizeStoredGrants(roles.SelectMany(r => legacyGrants[r]));
             IReadOnlySet<string> BeforeOf(int userId) =>
                 snapshot.TryGetValue(userId, out var identity) && identity.PassedLegacyGate
-                    ? Concrete(PermissionWildcards.Expand(LegacyCodes(heldBy[userId]).Where(declared.Contains).ToHashSet(StringComparer.Ordinal), declared))
+                    ? Concrete(PermissionHierarchy.Expand(LegacyCodes(heldBy[userId]).Where(declared.Contains).ToHashSet(StringComparer.Ordinal), declared))
                     : new HashSet<string>();
 
             // ── After: this package ──
@@ -127,9 +127,9 @@ namespace kdyf.Authorization.Migrations.Legacy
                 }
 
                 foreach (var code in settings.ExactCodes)
-                    if (PermissionWildcards.Covers(before, code) != PermissionWildcards.Covers(after, code) && !Excepted(InvariantKinds.Exact, objectId, code))
+                    if (PermissionHierarchy.Covers(before, code) != PermissionHierarchy.Covers(after, code) && !Excepted(InvariantKinds.Exact, objectId, code))
                         issues.Add(new(IssueSeverity.Blocker, "exact", userId,
-                            $"'{code}' must be held after by exactly who held it before: {(PermissionWildcards.Covers(before, code) ? "held before, not after" : "held after, not before")}."));
+                            $"'{code}' must be held after by exactly who held it before: {(PermissionHierarchy.Covers(before, code) ? "held before, not after" : "held after, not before")}."));
 
                 var lost = before.Except(after).ToList();
                 if (snapshot.TryGetValue(userId, out var id) && id.PassedLegacyGate)
@@ -164,7 +164,7 @@ namespace kdyf.Authorization.Migrations.Legacy
                             && users.TryGetValue(token.UserId, out var owner) && owner.IsActive
                             && (settings.TokensExemptFromGate || (snapshot.TryGetValue(token.UserId, out var o) && o.PassedLegacyGate));
                 var before = !valid ? new HashSet<string>()
-                    : Concrete(PermissionWildcards.Expand(LegacyCodes(limited.TryGetValue(token.Id, out var only) ? only : heldBy[token.UserId])
+                    : Concrete(PermissionHierarchy.Expand(LegacyCodes(limited.TryGetValue(token.Id, out var only) ? only : heldBy[token.UserId])
                         .Where(declared.Contains).ToHashSet(StringComparer.Ordinal), declared));
                 if (before.Count > 0)
                     tokensBefore++;

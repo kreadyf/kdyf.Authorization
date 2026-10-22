@@ -20,16 +20,27 @@ namespace kdyf.Authorization.Roles
     internal sealed class RolePermissionStartupCheck : IHostedService
     {
         private readonly RolePermissionMapProvider _roles;
+        private readonly DeclaredPermissions _declared;
         private readonly ILogger<RolePermissionStartupCheck> _logger;
 
-        public RolePermissionStartupCheck(RolePermissionMapProvider roles, ILogger<RolePermissionStartupCheck> logger)
+        public RolePermissionStartupCheck(
+            RolePermissionMapProvider roles, DeclaredPermissions declared, ILogger<RolePermissionStartupCheck> logger)
         {
             _roles = roles;
+            _declared = declared;
             _logger = logger;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
+            // Wildcard classes left over from before 1.2.0: harmless (a node covers its area), but dead code that
+            // reads as if it granted something.
+            if (_declared.IgnoredWildcards.Count > 0)
+                _logger.LogWarning(
+                    "These permission classes declare a wildcard, which the permission tree has replaced: grant the node "
+                    + "instead ('' for everything, 'area' for an area). They were left out of the catalog; delete them: {Wildcards}.",
+                    string.Join(", ", _declared.IgnoredWildcards));
+
             try
             {
                 var undeclared = (await _roles.GetAsync(cancellationToken)).Undeclared;

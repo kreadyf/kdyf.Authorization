@@ -685,13 +685,72 @@ public sealed class AccessAdminServiceTests
         AssertRoleUnchanged(result, "permissions", "App.Reader", "apitest.Read");
     }
 
-    /// <summary>The wildcard is everything: only whoever holds everything can grant it.</summary>
+    /// <summary>The root is everything: only whoever holds everything can grant it.</summary>
     [TestMethod]
-    public async Task Nobody_grants_the_wildcard_without_holding_it()
+    public async Task Nobody_grants_the_root_without_holding_it()
     {
-        var result = await _f.Access().SetRolePermissionsAsync("App.Reader", Permissions("*"), _f.Actor(People.Manager), default);
+        var result = await _f.Access().SetRolePermissionsAsync("App.Reader", Permissions(""), _f.Actor(People.Manager), default);
 
         AssertRoleUnchanged(result, "permissions", "App.Reader", "apitest.Read");
+    }
+
+    /// <summary>The empty code is the root, not a blank to be dropped: whoever holds it can grant it.</summary>
+    [TestMethod]
+    public async Task The_root_can_be_granted()
+    {
+        var result = await _f.Access().SetRolePermissionsAsync("App.Reader", Permissions(""), _f.Actor(People.Admin), default);
+
+        Assert.IsTrue(result.Validation.IsValid, Errors(result));
+        CollectionAssert.AreEqual(new[] { "" }, _f.Grants("App.Reader"));
+        Assert.IsTrue(_f.Roles.EffectivePermissions(new[] { "App.Reader" }).Contains("apitest.Admin"));
+    }
+
+    /// <summary>An area's node can be granted without any class declaring it.</summary>
+    [TestMethod]
+    public async Task An_area_can_be_granted_as_a_whole()
+    {
+        var result = await _f.Access().SetRolePermissionsAsync("App.Reader", Permissions("apitest"), _f.Actor(People.Admin), default);
+
+        Assert.IsTrue(result.Validation.IsValid, Errors(result));
+        CollectionAssert.IsSubsetOf(new[] { "apitest.Read", "apitest.Edit", "apitest.Admin" }, _f.Roles.EffectivePermissions(new[] { "App.Reader" }).ToArray());
+    }
+
+    /// <summary>A wildcard is not a permission any more: nobody can grant one, not even whoever holds everything.</summary>
+    [TestMethod]
+    public async Task A_wildcard_cannot_be_granted()
+    {
+        var result = await _f.Access().SetRolePermissionsAsync("App.Reader", Permissions("*"), _f.Actor(People.Admin), default);
+
+        AssertRoleUnchanged(result, "permissions", "App.Reader", "apitest.Read");
+    }
+
+    /// <summary>
+    /// A role still storing '*' (data from before 1.2.0) reads as the root. Taking the root away must take the row
+    /// with it: leaving it would leave the role granting everything.
+    /// </summary>
+    [TestMethod]
+    public async Task Removing_the_root_also_removes_a_legacy_star_row()
+    {
+        _f.LeaveBehind("App.Editor", "*");
+        Assert.IsTrue(_f.Roles.GrantsOf("App.Editor").Contains(""), "the legacy row reads as the root");
+
+        var result = await _f.Access().SetRolePermissionsAsync("App.Editor", Permissions("apitest.Read"), _f.Actor(People.Admin), default);
+
+        Assert.IsTrue(result.Validation.IsValid, Errors(result));
+        CollectionAssert.AreEqual(new[] { "apitest.Read" }, _f.Grants("App.Editor"));
+    }
+
+    /// <summary>A legacy wildcard row is not an orphan: the post-deployment script rewrites it with its grants.</summary>
+    [TestMethod]
+    public async Task The_cleanup_leaves_legacy_wildcard_rows_alone()
+    {
+        _f.LeaveBehind("App.Editor", "apitest.*");
+
+        var result = await _f.Access().DeleteOrphansAsync(_f.Actor(People.Admin), default);
+
+        Assert.IsTrue(result.Validation.IsValid, Errors(result));
+        CollectionAssert.Contains(_f.Catalog(), "apitest.*");
+        CollectionAssert.Contains(_f.Grants("App.Editor"), "apitest.*");
     }
 
     [TestMethod]

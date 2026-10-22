@@ -133,7 +133,9 @@ public sealed class SimulationPipelineTests
         {
             var db = scope.ServiceProvider.GetRequiredService<AdminTestContext>();
             db.Database.EnsureCreated();
-            db.AddRange(PermissionDefinition.DiscoverIn(assembly).Select(p => AccessFixture.CatalogRow(p.Code)));
+            // The whole tree, as the startup synchronisation writes it: the root and the ancestors too.
+            db.AddRange(new kdyf.Authorization.Roles.DeclaredPermissions(PermissionDefinition.DiscoverIn(assembly)).Permissions
+                .Select(p => AccessFixture.CatalogRow(p.Code)));
             db.AddRange(apitest.TestRoleConfiguration.Roles());
             db.AddRange(apitest.TestRoleConfiguration.Rows());
             db.AddRange(

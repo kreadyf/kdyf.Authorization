@@ -61,7 +61,6 @@ using Microsoft.EntityFrameworkCore;      // UseSqlServer
 builder.Services.AddKdyfAuthorization(builder.Configuration, "Authorization", auth => auth
     .Declarations(typeof(Program).Assembly)
     .EveryMemberHolds(new MyBaseAccess())     // optional: a permission of yours every member of the gate holds without a role
-    .AreaWildcards()                          // optional: a wildcard per area (global.*) without writing its class
     .UseEntityFrameworkStore((db, connectionString) => db.UseSqlServer(connectionString))
     .UseEntraId());
 
@@ -113,21 +112,42 @@ INSERT INTO auth.UserRole (objectId, roleValue) VALUES ('<the person''s Entra ob
 From then on roles are given from the application, under its rules: four eyes, nothing beyond what the administrator
 holds, never the last administrator.
 
-### Wildcards
+### The permission tree
 
-A role may grant `*` (everything) or `area.*` (everything in an area, at any depth) instead of each code. A wildcard is
-granted, never demanded: the effective permissions are expanded before anything compares them, so the doors keep naming
-exact codes. Only **declared** codes count — a wildcard row in the database that no declaration backs grants nothing.
+Codes are paths: `fabrikam.Invoicing.Invoices` sits under `fabrikam.Invoicing`, which sits under `fabrikam`, which sits
+under the root `""` (the empty code). A granted code covers itself and everything below it, today's codes and the ones
+added later:
 
-- `*`, and a nested wildcard such as `fabrikam.Invoicing.*`, are declared like any permission: a class whose code is
-  `*` (in namespace `fabrikam.Invoicing` for the nested one).
-- `auth.AreaWildcards()` declares `area.*` for every area — the first segment of a code — that has at least two
-  permissions, so a new area comes with its wildcard: add `aaa.Reports` and `aaa.Exports`, and `aaa.*` is declared, its
-  row written at startup, and a role may grant it. A wildcard declared by a class wins. Off by default: a wildcard grants
-  more than it looks like on a roles screen.
-- `auth.AreaWildcards(except: "global")` leaves out the areas that must not be granted as a whole. A name that is not an
-  area stops the host at registration (names are case-sensitive): a typo would otherwise derive the very wildcard it was
-  meant to prevent.
+| A role grants | It holds |
+|---|---|
+| `""` (the root, "Everything") | every permission, areas added later included |
+| `fabrikam` | `fabrikam.Controlling`, `fabrikam.Invoicing`, `fabrikam.Invoicing.Invoices`, … — not `fabrikamArchive.*` |
+| `fabrikam.Invoicing.Invoices` | only that |
+
+- **Every node exists without a class.** The catalog holds the declared codes, every ancestor of them and the root
+  (`PermissionNode`); the startup sync writes their rows, so a role can grant `fabrikam` the moment `fabrikam.Reports`
+  is declared. To give a node a name and a description, declare it: a class with an empty code in the area's namespace
+  (`base("", "All of Fabrikam")`). Implicit nodes never overwrite a name somebody gave their row.
+- **Holding every child is not holding the parent**: the parent also covers the children added tomorrow. An empty set
+  of grants holds nothing; `[""]` holds everything.
+- **Granted, and also demandable.** The effective permissions are expanded before anything compares them, so doors keep
+  naming the codes they need; a policy may also demand a node (`fabrikam`), held by whoever holds it or the root.
+- **Codes** are dot-separated segments of printable ASCII, without spaces, empty segments, `*` or `|`.
+
+#### Upgrading from wildcards (before 1.2.0)
+
+`*` and `area.*` are gone: grant `""` and `area` instead. 1.2.0 still **reads** the old rows (`*` as the root, `area.*`
+as `area`), refuses to write them, and leaves wildcard classes out of the catalog with a warning. `auth.AreaWildcards()`,
+`PermissionWildcards`, `AreaWildcards` and `ExpandWildcards()` remain, obsolete, and change nothing.
+
+1. Deploy 1.2.0 to every instance of every host sharing the tables; delete the wildcard classes and `.AreaWildcards()`.
+2. Run [`docs/auth-migrate-permission-hierarchy.sql`](docs/auth-migrate-permission-hierarchy.sql), first with
+   `@DryRun = 1`: it turns every `*` / `area.*` grant into `""` / `area`, adds the missing ancestor rows, deletes the
+   wildcard rows and verifies that every role grants exactly what it did, in one transaction.
+3. Restart the hosts. Do not go back to a version before 1.2.0.
+
+Before step 2, check that no role grants a code that is a parent of other codes by accident: from 1.2.0 such a grant
+covers the codes below it.
 
 ## Configuration
 

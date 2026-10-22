@@ -56,7 +56,9 @@ namespace kdyf.Authorization.Authorization
             var roleClaimsApply = _options.AcceptRoleClaims &&
                                   (!isPerson || _options.AcceptRoleClaimsForUserPrincipals);
 
-            if (roleClaimsApply && requirement.Codes.Any(principal.IsInRole))
+            // A role claim naming a node (or a legacy wildcard) covers the codes below it, as a stored grant does.
+            if (roleClaimsApply && requirement.Codes.Any(code =>
+                    PermissionHierarchy.CoveringWithLegacy(code).Any(principal.IsInRole)))
             {
                 context.Succeed(requirement);
                 return;
@@ -88,8 +90,9 @@ namespace kdyf.Authorization.Authorization
                 return;
             }
 
-            // Having any one of the required codes is enough.
-            if (requirement.Codes.Any(permissions.Contains))
+            // Having any one of the required codes is enough — or a node above it. The set normally arrives expanded;
+            // covering here as well keeps a store that does not expand from denying the holder of a node.
+            if (requirement.Codes.Any(code => PermissionHierarchy.Covers(permissions, code)))
             {
                 context.Succeed(requirement);
                 return;

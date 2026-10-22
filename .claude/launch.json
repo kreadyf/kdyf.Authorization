@@ -1,0 +1,28 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wimba-api",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "C:\\Users\\CarlosCarranzadelaQu\\source\\repos\\wimba.services2\\wimba.services.Api.Host\\wimba.services.Api.Host.csproj",
+        "--launch-profile",
+        "https",
+        "--",
+        "--contentRoot",
+        "C:\\Users\\CarlosCarranzadelaQu\\source\\repos\\wimba.services2\\wimba.services.Api.Host"
+      ],
+      "port": 7031,
+      "url": "https://localhost:7031"
+    },
+    {
+      "name": "wimba-dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:\\Users\\CarlosCarranzadelaQu\\source\\repos\\wimba.dashboard", "run", "start:ssl"],
+      "port": 4200,
+      "url": "https://localhost:4200"
+    }
+  ]
+}
