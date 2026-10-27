@@ -1,0 +1,36 @@
+# What may be merged into master: develop (a release) or a hotfix/* branch of this repository (a fix of what was
+# released). Anything else, a fork included, goes to develop first. GitHub's rulesets cannot say where a pull request
+# comes from, so the master ruleset requires this job's check (source-branch) to pass.
+
+name: Branch policy
+
+on:
+  pull_request:
+    branches: [master]
+    # edited: a pull request retargeted to master is checked again.
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  source-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Only develop or hotfix/* into master
+        # The branch names come in through env, never interpolated into the script: a contributor chooses them.
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [[ "$HEAD_REPO" != "$THIS_REPO" ]]; then
+            echo "::error::A pull request from a fork ($HEAD_REPO) goes to develop, not to master. See CONTRIBUTING.md."
+            exit 1
+          fi
+          if [[ "$HEAD_REF" == "develop" || "$HEAD_REF" == hotfix/* ]]; then
+            echo "'$HEAD_REF' may be merged into master."
+            exit 0
+          fi
+          echo "::error::Only develop or a hotfix/* branch is merged into master, not '$HEAD_REF'. Open the pull request against develop."
+          exit 1

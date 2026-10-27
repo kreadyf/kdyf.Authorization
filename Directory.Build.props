@@ -17,7 +17,7 @@
        internals, so a mismatched pair could break without any public API changing. pack-local.ps1 sets VersionSuffix;
        the release workflow sets Version from the tag (v1.0.0-preview.2 -> 1.0.0-preview.2). -->
   <PropertyGroup>
-    <VersionPrefix>1.2.1</VersionPrefix>
+    <VersionPrefix>1.2.2</VersionPrefix>
     <VersionSuffix Condition="'$(VersionSuffix)' == ''">dev</VersionSuffix>
     <Authors>kreadyf</Authors>
     <Company>kreadyf</Company>
@@ -65,7 +65,7 @@
        pack. Raise the baseline after each release. -->
   <PropertyGroup Condition="'$(IsPackable)' == 'true'">
     <EnablePackageValidation>true</EnablePackageValidation>
-    <PackageValidationBaselineVersion>1.2.0</PackageValidationBaselineVersion>
+    <PackageValidationBaselineVersion>1.2.1</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <!-- The packages depend on each other with the EXACT version ([1.0.0]), never "1.0.0 or later": they ship together and

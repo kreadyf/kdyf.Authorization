@@ -336,10 +336,26 @@ a local feed (`C:\Nuget` by default) with a unique version suffix per run.
 
 ## Branches
 
-`develop` is where work lands, through pull requests; `master` is what has been released. A release is a tag on
-`master`, `v<version>` (for example `v1.0.0`, or `v1.1.0-preview.1` for a preview); every package of a release carries
-that version, and each depends on the others with that exact version. What changed is in
+| Branch | What it is | What is merged into it |
+|---|---|---|
+| `master` | what has been released | `develop` (a release) or `hotfix/*` (a fix of a release), by pull request, as a merge commit |
+| `develop` | where work lands and is tried | any branch, by pull request with the CI green; contributions come from forks |
+| `feature/*`, `fix/*` | one change each | — (deleted once merged) |
+| `hotfix/*` | a fix of what was released, cut from `master` | — (deleted once merged) |
+
+Neither `develop` nor `master` takes a direct push, a force push or a deletion. A pull request to `master` from any
+other branch, or from a fork, fails the `source-branch` check
+([branch-policy.yml](https://github.com/kreadyf/kdyf.Authorization/blob/master/.github/workflows/branch-policy.yml)).
+How to contribute is in [CONTRIBUTING.md](https://github.com/kreadyf/kdyf.Authorization/blob/master/CONTRIBUTING.md).
+
+**A release** is a pull request from `develop` to `master`, merged with a merge commit, and then a tag on `master`,
+`v<version>` (for example `v1.0.0`, or `v1.1.0-preview.1` for a preview). The tag publishes to nuget.org, after an
+approval; only the maintainers can create one. Every package of a release carries that version, and each depends on the
+others with that exact version. What changed is in
 [CHANGELOG.md](https://github.com/kreadyf/kdyf.Authorization/blob/master/CHANGELOG.md).
+
+**A hotfix** is a `hotfix/<topic>` branch cut from `master`, a pull request to `master`, a patch tag, and then a pull
+request from `master` to `develop`, so the next release keeps the fix.
 
 After a stable release: set `PackageValidationBaselineVersion` in `Directory.Build.props` to it (a 1.x that breaks the
 public API then fails the build), and raise `VersionPrefix` on `develop` to the next version.
