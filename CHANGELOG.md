@@ -3,6 +3,35 @@
 Every package of a release carries the same version. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [SemVer 2](https://semver.org/).
 
+## 1.2.1
+
+No change to the code or the public API: documentation and package metadata only.
+
+### Documentation
+
+- **Each package has its own page on nuget.org.** A short `PACKAGE.md` per project says what that package does, how to
+  install it, a small sample and its siblings, and links to the full README. Before, all seven pages showed the root README.
+- README: a package table with links to nuget.org and version badges, and the `dotnet add package` /
+  `dotnet tool install` commands.
+- README corrections:
+  - The first administrator's SQL grants the code the `AdministeredBy` policy demands, area included
+    (`fabrikam.Administration`), not a literal `DataAdministration`.
+  - `AcceptRoleClaimsForUserPrincipals` cannot be turned on through `AddKdyfAuthorization`.
+  - Which obsolete wildcard APIs do nothing (`AreaWildcards()`) and which answer with the hierarchy
+    (`PermissionWildcards`, `WildcardExpandingPermissionStore`, `ExpandWildcards()`).
+  - The `Unsupported` schema state is listed.
+  - The simulation is recorded in the audit log only with the administration package.
+  - Writes refused during a simulation, and `[ReadOnlyOperation]` for a POST that only reads.
+  - `Directory:TenantId` / `Directory:ClientId` for a separate Graph app registration.
+  - The link to `docs/auth-migrate-permission-hierarchy.sql` is absolute, so it works on nuget.org.
+- SECURITY.md: the fallback policy demands the access gate, not only a session. Minor versions keep the public API,
+  and behaviour changes are listed under "Changed".
+
+### Package metadata
+
+- The `kdyf.Authorization` description names the permission tree instead of wildcards.
+- `PackageReleaseNotes` points to this changelog, and each package adds tags of its own.
+
 ## 1.2.0
 
 ### Changed — read before upgrading

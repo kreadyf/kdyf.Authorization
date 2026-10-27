@@ -1,5 +1,8 @@
 # kdyf.Authorization
 
+[![NuGet](https://img.shields.io/nuget/v/kdyf.Authorization?logo=nuget&label=NuGet)](https://www.nuget.org/packages/kdyf.Authorization)
+[![License: MIT](https://img.shields.io/github/license/kreadyf/kdyf.Authorization)](https://github.com/kreadyf/kdyf.Authorization/blob/master/LICENSE)
+
 Permission-based authorization for ASP.NET Core hosts that sign people in with Microsoft Entra ID: permissions and
 policies declared as classes, the application's own roles in a database, personal access tokens (PAT), read-only user
 simulation, and the administration of access — with optional, ready-made endpoints.
@@ -11,25 +14,37 @@ simulation, and the administration of access — with optional, ready-made endpo
   EF Core) and administered from the application.
 - **Personal access tokens** (`Authorization: PAT <token>`) are worth what their owner holds at that moment.
 - **User simulation** (`X-Simulate-User: <e-mail>`): an administrator reads the application as somebody else —
-  read-only, only somebody who holds nothing beyond them, recorded in the audit log.
+  read-only, only somebody who holds nothing beyond them, recorded in the audit log (with the administration package;
+  without it, only in the application's log).
 
 ## Packages
 
-All of them ship with the same version.
+All of them ship with the same version, and each depends on the others with that exact version. Every package targets
+.NET 8 and .NET 10.
 
-| Package | What for |
-|---|---|
-| `kdyf.Authorization` | Core: permissions, policies, cache, the PAT scheme, simulation |
-| `kdyf.Authorization.EntityFrameworkCore` | The `auth.*` tables: roles, what they grant, who holds them, PATs, the permission catalog |
-| `kdyf.Authorization.EntraId` | Entra ID sign-in and the access gate, through Microsoft Graph |
-| `kdyf.Authorization.AspNetCore` | Composition for a host: `AddKdyfAuthorization`, `UseKdyfAuthorization`; optional `GET auth/me`, `GET auth/policies` |
-| `kdyf.Authorization.Administration` | Administration: people, roles, PATs, directory and access gate through Graph, audit log, simulation; `AddKdyfAuthorizationAdministration` and the optional endpoints |
-| `kdyf.Authorization.Migrations` | The versioned schema (SQL Server): detect, plan, script, apply, verify, adopt; and, temporarily, moving the access gate from a group to app assignments |
-| `kdyf.Authorization.Tool` | The `kdyf-auth` dotnet tool: the schema commands without a host |
+| Package | NuGet | What for |
+|---|---|---|
+| [kdyf.Authorization](https://www.nuget.org/packages/kdyf.Authorization) | [![NuGet](https://img.shields.io/nuget/v/kdyf.Authorization?label=)](https://www.nuget.org/packages/kdyf.Authorization) | Core: permissions, policies, the permission tree, cache, the PAT scheme, simulation |
+| [kdyf.Authorization.EntityFrameworkCore](https://www.nuget.org/packages/kdyf.Authorization.EntityFrameworkCore) | [![NuGet](https://img.shields.io/nuget/v/kdyf.Authorization.EntityFrameworkCore?label=)](https://www.nuget.org/packages/kdyf.Authorization.EntityFrameworkCore) | The `auth.*` tables: roles, what they grant, who holds them, PATs, the permission catalog |
+| [kdyf.Authorization.EntraId](https://www.nuget.org/packages/kdyf.Authorization.EntraId) | [![NuGet](https://img.shields.io/nuget/v/kdyf.Authorization.EntraId?label=)](https://www.nuget.org/packages/kdyf.Authorization.EntraId) | Entra ID sign-in and the access gate, through Microsoft Graph |
+| [kdyf.Authorization.AspNetCore](https://www.nuget.org/packages/kdyf.Authorization.AspNetCore) | [![NuGet](https://img.shields.io/nuget/v/kdyf.Authorization.AspNetCore?label=)](https://www.nuget.org/packages/kdyf.Authorization.AspNetCore) | Composition for a host: `AddKdyfAuthorization`, `UseKdyfAuthorization`; optional `GET auth/me`, `GET auth/policies` |
+| [kdyf.Authorization.Administration](https://www.nuget.org/packages/kdyf.Authorization.Administration) | [![NuGet](https://img.shields.io/nuget/v/kdyf.Authorization.Administration?label=)](https://www.nuget.org/packages/kdyf.Authorization.Administration) | Administration: people, roles, PATs, directory and access gate through Graph, audit log, simulation; `AddKdyfAuthorizationAdministration` and the optional endpoints |
+| [kdyf.Authorization.Migrations](https://www.nuget.org/packages/kdyf.Authorization.Migrations) | [![NuGet](https://img.shields.io/nuget/v/kdyf.Authorization.Migrations?label=)](https://www.nuget.org/packages/kdyf.Authorization.Migrations) | The versioned schema (SQL Server): detect, plan, script, apply, verify, adopt; and, temporarily, moving the access gate from a group to app assignments |
+| [kdyf.Authorization.Tool](https://www.nuget.org/packages/kdyf.Authorization.Tool) | [![NuGet](https://img.shields.io/nuget/v/kdyf.Authorization.Tool?label=)](https://www.nuget.org/packages/kdyf.Authorization.Tool) | The `kdyf-auth` dotnet tool: the schema commands without a host |
 
-Every package targets .NET 8 and .NET 10. Namespaces did not change when the former `*.Endpoints`,
-`Administration.EntraId` and `Administration.AspNetCore` packages were merged, nor when `EntraId.Migration` became
-`Migrations`: a host only changes its package references.
+```bash
+dotnet add package kdyf.Authorization.AspNetCore
+dotnet add package kdyf.Authorization.EntityFrameworkCore
+dotnet add package kdyf.Authorization.EntraId
+dotnet add package kdyf.Authorization.Administration    # to administer access from the application
+dotnet tool install --global kdyf.Authorization.Tool     # kdyf-auth, to create the tables
+```
+
+Each package's page on nuget.org shows a short README of its own (`PACKAGE.md` in its project); this file is the full
+guide.
+
+Namespaces did not change when the former `*.Endpoints`, `Administration.EntraId` and `Administration.AspNetCore`
+packages were merged, nor when `EntraId.Migration` became `Migrations`: a host only changes its package references.
 
 The endpoints expose nothing unless the host calls their `Map…()`. A host that prefers its own endpoints
 uses the administration services directly, and a host that keeps its own response envelope registers an
@@ -45,7 +60,8 @@ A host references `kdyf.Authorization.AspNetCore`, `kdyf.Authorization.EntityFra
    start below the version it requires.
 2. **The declarations**: permissions and policies as classes, in the assemblies the host names.
 3. **The composition** below. `UseKdyfAuthorization()` goes after `UseRouting()` (when the host calls it) and before the
-   endpoints; it runs authentication, simulation and authorization in that order.
+   endpoints; it runs authentication, simulation (when `AddKdyfAuthorizationSimulation` registered it) and
+   authorization in that order.
 4. **The first administrator** (below): until somebody holds the administration permission, nobody can give roles.
 
 ```csharp
@@ -94,18 +110,26 @@ token or an application token must carry one. A member with no role in a host wi
 - `AllowAnonymous` still opens an endpoint to everyone (the SPA shell, health checks).
 
 The application's roles authorize people. Entra **app roles** in a token (`roles`) authorize only clients that are not
-people — an application with client credentials, or a personal access token, whose permissions are its role claims —,
-unless `AcceptRoleClaimsForUserPrincipals` is turned on, which skips the gate, the suspension and the revocation.
+people — an application with client credentials, or a personal access token, whose permissions are its role claims.
+`AddKdyfAuthorization` keeps it that way: `PermissionAuthorizationOptions.AcceptRoleClaimsForUserPrincipals` is always
+false there. Only a host composing the core alone with `AddPermissionAuthorization` could turn it on, and that skips
+the gate, the suspension and the revocation.
+
+During a simulation every request that writes is refused: PUT, PATCH, DELETE, and any POST whose endpoint does not
+carry `[ReadOnlyOperation]` (`.WithMetadata(new ReadOnlyOperationAttribute())` on a minimal API). Mark the POST
+endpoints that only read, such as a search whose filter goes in the body.
 
 ### The first administrator
 
-The administration permission (`AdministrationPermissionCode`, `DataAdministration` unless the host names another; the
-policy given to `AdministeredBy` must demand it) has to be held by somebody before anybody can give roles. Once, with the
-tables created and the host started once (it fills the permission catalog), and with the person in the access gate:
+The administration permission is the one the policy given to `AdministeredBy` demands (that policy must demand exactly
+one). Its code carries the area of its namespace: a class in namespace `fabrikam` declaring `"Administration"` is
+`fabrikam.Administration`. It has to be held by somebody before anybody can give roles. Once, with the tables created
+and the host started once (it fills the permission catalog), and with the person in the access gate:
 
 ```sql
 INSERT INTO auth.Role (roleValue, name, description, createdAt) VALUES ('App.Admin', N'Administrators', NULL, SYSUTCDATETIME());
-INSERT INTO auth.RolePermission (roleValue, PermissionCode) VALUES ('App.Admin', 'DataAdministration');
+-- The code the AdministeredBy policy demands, exactly as in auth.Permission (or '', the root, which covers everything).
+INSERT INTO auth.RolePermission (roleValue, PermissionCode) VALUES ('App.Admin', 'fabrikam.Administration');
 INSERT INTO auth.UserRole (objectId, roleValue) VALUES ('<the person''s Entra object id, lower case>', 'App.Admin');
 ```
 
@@ -137,11 +161,12 @@ added later:
 #### Upgrading from wildcards (before 1.2.0)
 
 `*` and `area.*` are gone: grant `""` and `area` instead. 1.2.0 still **reads** the old rows (`*` as the root, `area.*`
-as `area`), refuses to write them, and leaves wildcard classes out of the catalog with a warning. `auth.AreaWildcards()`,
-`PermissionWildcards`, `AreaWildcards` and `ExpandWildcards()` remain, obsolete, and change nothing.
+as `area`), refuses to write them, and leaves wildcard classes out of the catalog with a warning. The wildcard API
+remains, obsolete, until 2.0: `auth.AreaWildcards()` and `AreaWildcards.Derive` do nothing; `PermissionWildcards`,
+`WildcardExpandingPermissionStore` and `ExpandWildcards()` answer with the hierarchy.
 
 1. Deploy 1.2.0 to every instance of every host sharing the tables; delete the wildcard classes and `.AreaWildcards()`.
-2. Run [`docs/auth-migrate-permission-hierarchy.sql`](docs/auth-migrate-permission-hierarchy.sql), first with
+2. Run [`docs/auth-migrate-permission-hierarchy.sql`](https://github.com/kreadyf/kdyf.Authorization/blob/master/docs/auth-migrate-permission-hierarchy.sql), first with
    `@DryRun = 1`: it turns every `*` / `area.*` grant into `""` / `area`, adds the missing ancestor rows, deletes the
    wildcard rows and verifies that every role grants exactly what it did, in one transaction.
 3. Restart the hosts. Do not go back to a version before 1.2.0.
@@ -170,7 +195,9 @@ and the message names the key.
     "MigrationSyncInterval": "00:10:00",      // Migrating: how often the assignments are brought in line with the group
     "InviteRedirectUrl": "https://…",         // where an invited guest lands; required to invite
     "SendInvitationMessage": true,            // false when the host sends its own invitation e-mail (AddSmtpInvitationNotifier)
-    "ClientSecret": "…"                       // SECRET: user secrets, environment variables or a vault
+    "TenantId": "…",                          // optional: only when Graph uses another tenant than EntraId
+    "ClientId": "…",                          // optional: only when Graph uses another app registration than EntraId
+    "ClientSecret": "…"                       // SECRET, of the app registration Graph uses: user secrets, environment variables or a vault
   },
   "Authorization": { "CacheDuration": "00:02:00", "EmptyResultCacheDuration": "00:00:30" },
   "Simulation": { "HeaderName": "X-Simulate-User", "SessionIdleTimeout": "00:30:00" }
@@ -181,8 +208,8 @@ Secrets never belong in `appsettings.json`. The Microsoft Graph application perm
 `User.Read.All`, plus `GroupMember.Read.All` (`GroupMember.ReadWrite.All` to administer) for a group, and
 `AppRoleAssignment.ReadWrite.All` for app assignments; `Migrating` needs both, since the group decides while the
 assignments are kept in line with it. Inviting guests needs `User.Invite.All`. `AppRoleAssignment.ReadWrite.All` is
-powerful — it can assign any app role in the tenant — so give it to a separate app registration used only for Graph,
-with its client secret kept in a vault and rotated.
+powerful — it can assign any app role in the tenant — so give it to a separate app registration used only for Graph
+(`Directory:ClientId`), with its client secret kept in a vault and rotated.
 
 The gate is read when the host starts: changing `Gate` takes a restart. `Gate: "Migrating"` in a host that administers
 access also needs `builder.Services.AddKdyfAuthorizationGateMigration()` (kdyf.Authorization.Migrations), after the
@@ -225,6 +252,7 @@ from SQL Server's catalog, never deduced from a model:
 | Version 1 without a history (the hosts' script) | **adopted**: stamped, not rebuilt |
 | Version 1 with case-insensitive keys | adopted after a collation repair, only with `--approve collation-repair` |
 | The legacy kdyf.auth.* schema | never touched in place: imported into another schema |
+| The reference model before September 2026 | not migrated automatically: fixed by hand |
 | Anything else | nothing is done; the differences are reported |
 
 Each step runs in its own transaction with its verification and its history row, one run at a time per schema. A step

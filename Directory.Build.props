@@ -17,7 +17,7 @@
        internals, so a mismatched pair could break without any public API changing. pack-local.ps1 sets VersionSuffix;
        the release workflow sets Version from the tag (v1.0.0-preview.2 -> 1.0.0-preview.2). -->
   <PropertyGroup>
-    <VersionPrefix>1.2.0</VersionPrefix>
+    <VersionPrefix>1.2.1</VersionPrefix>
     <VersionSuffix Condition="'$(VersionSuffix)' == ''">dev</VersionSuffix>
     <Authors>kreadyf</Authors>
     <Company>kreadyf</Company>
@@ -28,6 +28,7 @@
     <PackageProjectUrl>https://github.com/kreadyf/kdyf.Authorization</PackageProjectUrl>
     <PackageTags>authorization;permissions;entra-id;aspnetcore</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>https://github.com/kreadyf/kdyf.Authorization/blob/master/CHANGELOG.md</PackageReleaseNotes>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -47,8 +48,16 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" VersionOverride="$(AspNetCoreVersion)" />
   </ItemGroup>
 
+  <!-- Each package's page on nuget.org shows the project's own PACKAGE.md (what that package is, how to install it, a
+       short sample, its siblings), packed as README.md; the root README.md is the full guide, on GitHub. A project
+       without a PACKAGE.md packs the root README. -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true'">
+    <PackageReadmeSource Condition="Exists('$(MSBuildProjectDirectory)\PACKAGE.md')">$(MSBuildProjectDirectory)\PACKAGE.md</PackageReadmeSource>
+    <PackageReadmeSource Condition="'$(PackageReadmeSource)' == ''">$(MSBuildThisFileDirectory)README.md</PackageReadmeSource>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(IsPackable)' == 'true'">
-    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(PackageReadmeSource)" Pack="true" PackagePath="\README.md" Visible="false" />
   </ItemGroup>
 
   <!-- Package validation: the net8.0 and net10.0 assets of each package must offer the same API, and the API of the last
@@ -56,7 +65,7 @@
        pack. Raise the baseline after each release. -->
   <PropertyGroup Condition="'$(IsPackable)' == 'true'">
     <EnablePackageValidation>true</EnablePackageValidation>
-    <PackageValidationBaselineVersion>1.1.0</PackageValidationBaselineVersion>
+    <PackageValidationBaselineVersion>1.2.0</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <!-- The packages depend on each other with the EXACT version ([1.0.0]), never "1.0.0 or later": they ship together and

@@ -3,7 +3,7 @@
   <!-- AUTHORIZATION: "may this one here?". Runs on every request.
 
        Permissions and policies declared as classes, the handler, the policy provider, the
-       wildcards, the cache, the PAT scheme, user simulation and the policy report that tells
+       permission hierarchy, the cache, the PAT scheme, user simulation and the policy report that tells
        the caller what they may do.
 
        RULE: this project knows nothing about administration. Not a single reference to
@@ -14,7 +14,8 @@
        Origin: kdyf.auth.Permissions 1.1.0 (a legacy host), without the administration contracts
        (IAuditLog, IDirectoryService, IInvitationNotifier), which moved to kdyf.Authorization.Administration. -->
   <PropertyGroup>
-    <Description>Permission-based authorization for ASP.NET Core: permissions and policies declared as classes, wildcards, a cached permission store, personal access tokens (PAT) and read-only user simulation.</Description>
+    <Description>Permission-based authorization for ASP.NET Core: permissions and policies declared as classes, a permission tree (a granted code covers every code below it), a cached permission store, personal access tokens (PAT) and read-only user simulation.</Description>
+    <PackageTags>$(PackageTags);policies;personal-access-tokens;permission-hierarchy</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 

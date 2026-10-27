@@ -14,6 +14,7 @@
        Removed once the gate is AppAssignment. -->
   <PropertyGroup>
     <Description>Migrations for kdyf.Authorization: the versioned schema on SQL Server (detect, plan, script, apply, adopt, verify) and, temporarily, moving the access gate from an Entra security group to Enterprise application assignments.</Description>
+    <PackageTags>$(PackageTags);schema-migration;sqlserver</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 

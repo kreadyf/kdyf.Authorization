@@ -15,6 +15,7 @@
        checks its version at startup (SchemaVersionCheck). -->
   <PropertyGroup>
     <Description>EF Core store for kdyf.Authorization: roles, what they grant, who holds them, personal access tokens and the permission catalog in the auth.* tables, on the database provider the host chooses.</Description>
+    <PackageTags>$(PackageTags);efcore;entity-framework-core;sqlserver</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 

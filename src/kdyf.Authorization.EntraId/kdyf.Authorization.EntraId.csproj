@@ -13,6 +13,7 @@
        plus version conflicts with Microsoft.Identity.Web. -->
   <PropertyGroup>
     <Description>Microsoft Entra ID for kdyf.Authorization: sign-in with the Entra token, and who may use the application decided through Microsoft Graph — a security group or assignments to the Enterprise application.</Description>
+    <PackageTags>$(PackageTags);microsoft-graph;azure-ad;app-roles</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 

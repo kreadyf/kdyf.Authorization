@@ -426,3 +426,6 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# Claude Code local settings (launch configurations with machine paths)
+.claude/

@@ -22,6 +22,7 @@
        major version. -->
   <PropertyGroup>
     <Description>Administration of kdyf.Authorization: people and their access (Entra group or Enterprise app assignments), roles, personal access tokens, the directory, the audit log and user simulation, its ASP.NET Core composition and optional minimal API endpoints.</Description>
+    <PackageTags>$(PackageTags);administration;audit-log;personal-access-tokens;impersonation</PackageTags>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
