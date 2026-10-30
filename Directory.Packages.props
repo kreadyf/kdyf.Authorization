@@ -12,8 +12,8 @@
   <PropertyGroup>
     <!-- EF Core is NOT tied to the target: the libraries need 8 at least, on net8 and on net10, so a net10 host that stays
          on EF Core 8 is not moved to 10 by them. A host on 10 gets 10 (NuGet takes the highest). -->
-    <EntityFrameworkCoreVersion>8.0.32</EntityFrameworkCoreVersion>
-    <AspNetCoreVersion Condition="'$(TargetFramework)' == 'net8.0'">8.0.32</AspNetCoreVersion>
+    <EntityFrameworkCoreVersion>8.0.33</EntityFrameworkCoreVersion>
+    <AspNetCoreVersion Condition="'$(TargetFramework)' == 'net8.0'">8.0.33</AspNetCoreVersion>
     <AspNetCoreVersion Condition="'$(AspNetCoreVersion)' == ''">10.0.13</AspNetCoreVersion>
   </PropertyGroup>
 
@@ -24,7 +24,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="$(AspNetCoreVersion)" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="$(EntityFrameworkCoreVersion)" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="$(EntityFrameworkCoreVersion)" />
-    <PackageVersion Include="Microsoft.Identity.Web" Version="4.15.0" />
+    <PackageVersion Include="Microsoft.Identity.Web" Version="4.16.1" />
   </ItemGroup>
 
   <!-- Transitive, lifted: Microsoft.Identity.Web 4.15.0 brings 10.0.10, which has known vulnerabilities
@@ -38,8 +38,8 @@
     <PackageVersion Include="coverlet.collector" Version="6.0.2" />
     <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="$(AspNetCoreVersion)" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="$(AspNetCoreVersion)" />
-    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.11.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageVersion Include="Moq" Version="4.20.72" />
     <PackageVersion Include="MSTest.TestAdapter" Version="3.4.3" />
     <PackageVersion Include="MSTest.TestFramework" Version="3.4.3" />
